@@ -5,6 +5,7 @@ const calculatePosition = require("../utils/calculatePosition");
 const sendEmail = require("../utils/sendEmail");
 const confirmationEmail = require("../templates/confirmationEmail");
 const rankUpEmail = require("../templates/rankUpEmail");
+const isDisposableEmail = require("../utils/disposableEmailCheck");
 
 // GET /api/w/:slug  (public) — basic waitlist info for the public page
 async function getWaitlistInfo(req, res) {
@@ -37,6 +38,12 @@ async function join(req, res) {
 
     if (!email) {
       return res.status(400).json({ error: "Email is required" });
+    }
+
+    if (isDisposableEmail(email)) {
+      return res
+        .status(400)
+        .json({ error: "Please use a real, non-disposable email address" });
     }
 
     const waitlist = await Waitlist.findOne({ slug: req.params.slug });
