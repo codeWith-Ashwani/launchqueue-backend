@@ -7,12 +7,7 @@ const app = express();
 
 const PORT = process.env.PORT || 5000;
 
-app.use(
-  cors({
-    origin: process.env.CLIENT_URL || "http://localhost:5173",
-    credentials: true,
-  })
-);
+
 
 app.use(
   "/api/payments/webhook",
@@ -29,9 +24,16 @@ app.get("/", (req, res) => {
   });
 });
 
-app.use("/api/auth", require("./routes/auth"));
-app.use("/api/waitlists", require("./routes/waitlists"));
-app.use("/api/payments", require("./routes/payments"));
+const strictCors = cors({
+  origin: process.env.CLIENT_URL || "http://localhost:5173",
+  credentials: true,
+});
+const openCors = cors({ origin: true }); // public routes — embeddable on any site
+
+app.use("/api/auth", strictCors, require("./routes/auth"));
+app.use("/api/waitlists", strictCors, require("./routes/waitlists"));
+app.use("/api/payments", strictCors, require("./routes/payments"));
+app.use("/api/w", openCors, require("./routes/signups"));
 
 app.use((err, req, res, next) => {
   console.error(err.stack);
