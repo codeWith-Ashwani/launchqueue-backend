@@ -24,11 +24,22 @@ app.get("/", (req, res) => {
   });
 });
 
+const allowedOrigins = [
+  "http://localhost:5173",
+  process.env.CLIENT_URL,
+].filter(Boolean);
+
 const strictCors = cors({
-  origin: process.env.CLIENT_URL || "http://localhost:5173",
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
   credentials: true,
 });
-const openCors = cors({ origin: true }); // public routes — embeddable on any site
+const openCors = cors({ origin: true });
 
 app.use("/api/auth", strictCors, require("./routes/auth"));
 app.use("/api/waitlists", strictCors, require("./routes/waitlists"));
