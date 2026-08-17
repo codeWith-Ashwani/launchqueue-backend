@@ -18,14 +18,6 @@ async function getWaitlistInfo(req, res) {
     const totalSignups = await Signup.countDocuments({
       waitlistId: waitlist._id,
     });
-
-    res.json({
-      name: waitlist.name,
-      description: waitlist.description,
-      slug: waitlist.slug,
-      paused: waitlist.paused,
-      totalSignups,
-    });
     res.json({
       name: waitlist.name,
       description: waitlist.description,
