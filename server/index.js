@@ -29,6 +29,8 @@ const allowedOrigins = [
   process.env.CLIENT_URL,
 ].filter(Boolean);
 
+console.log("Allowed origins:", allowedOrigins);
+
 const strictCors = cors({
   origin: function (origin, callback) {
     if (!origin || allowedOrigins.includes(origin)) {
