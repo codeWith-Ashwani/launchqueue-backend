@@ -43,6 +43,19 @@ const waitlistSchema = new mongoose.Schema(
         description: { type: String, default: "" },
       },
     ],
+    milestones: {
+      type: [
+        {
+          referrals: { type: Number, required: true },
+          reward: { type: String, required: true },
+        },
+      ],
+      default: [
+        { referrals: 1, reward: "🎉 Priority access unlocked" },
+        { referrals: 3, reward: "🚀 Skip 15 spots instantly" },
+        { referrals: 5, reward: "👑 Founding member badge" },
+      ],
+    },
   },
   { timestamps: true },
 );

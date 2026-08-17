@@ -19,18 +19,19 @@ async function getWaitlistInfo(req, res) {
       waitlistId: waitlist._id,
     });
     res.json({
-      name: waitlist.name,
-      description: waitlist.description,
-      slug: waitlist.slug,
-      paused: waitlist.paused,
-      totalSignups,
-      heroHeadline: waitlist.heroHeadline,
-      heroSubheadline: waitlist.heroSubheadline,
-      heroImageUrl: waitlist.heroImageUrl,
-      accentColor: waitlist.accentColor,
-      ctaText: waitlist.ctaText,
-      features: waitlist.features,
-    });
+  name: waitlist.name,
+  description: waitlist.description,
+  slug: waitlist.slug,
+  paused: waitlist.paused,
+  totalSignups,
+  heroHeadline: waitlist.heroHeadline,
+  heroSubheadline: waitlist.heroSubheadline,
+  heroImageUrl: waitlist.heroImageUrl,
+  accentColor: waitlist.accentColor,
+  ctaText: waitlist.ctaText,
+  features: waitlist.features,
+  milestones: waitlist.milestones,
+});
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

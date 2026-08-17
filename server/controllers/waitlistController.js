@@ -69,10 +69,10 @@ async function getOne(req, res) {
 async function update(req, res) {
   try {
     const allowedFields = [
-      "name", "description", "thankYouMessage", "paused",
-      "heroHeadline", "heroSubheadline", "heroImageUrl",
-      "accentColor", "ctaText", "features",
-    ];
+  "name", "description", "thankYouMessage", "paused",
+  "heroHeadline", "heroSubheadline", "heroImageUrl",
+  "accentColor", "ctaText", "features", "milestones",
+];
     const updates = {};
     for (const field of allowedFields) {
       if (req.body[field] !== undefined) updates[field] = req.body[field];
