@@ -66,4 +66,32 @@ async function getOne(req, res) {
   }
 }
 
-module.exports = { create, list, getOne };
+async function update(req, res) {
+  try {
+    const allowedFields = [
+      "name", "description", "thankYouMessage", "paused",
+      "heroHeadline", "heroSubheadline", "heroImageUrl",
+      "accentColor", "ctaText", "features",
+    ];
+    const updates = {};
+    for (const field of allowedFields) {
+      if (req.body[field] !== undefined) updates[field] = req.body[field];
+    }
+
+    const waitlist = await Waitlist.findOneAndUpdate(
+      { _id: req.params.id, founderId: req.founder._id },
+      updates,
+      { new: true, runValidators: true }
+    );
+
+    if (!waitlist) {
+      return res.status(404).json({ error: "Waitlist not found" });
+    }
+
+    res.json({ waitlist });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+module.exports = { create, list, getOne, update };
