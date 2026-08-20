@@ -10,41 +10,7 @@ const isDisposableEmail = require("../utils/disposableEmailCheck");
 // GET /api/w/:slug  (public) — basic waitlist info for the public page
 async function getWaitlistInfo(req, res) {
   try {
-    let waitlist = await Waitlist.findOne({ slug: req.params.slug });
-    
-    // Auto-create default launchqueue waitlist if it doesn't exist yet
-    if (!waitlist && req.params.slug === "launchqueue") {
-      const Founder = require("../models/Founder");
-      let founder = await Founder.findOne();
-      if (!founder) {
-        founder = await Founder.create({
-          email: "founder@launchqueue.com",
-          password: "password123",
-          plan: "starter",
-        });
-      }
-      waitlist = await Waitlist.create({
-        founderId: founder._id,
-        name: "LaunchQueue",
-        slug: "launchqueue",
-        description: "The viral waitlist engine built for high-velocity product launches.",
-        heroHeadline: "Waitlists that grow themselves",
-        heroSubheadline: "Give your launch audience a live queue position they can climb by referring friends. Embeds on any site in 60 seconds with zero backend code.",
-        accentColor: "#2563eb",
-        ctaText: "Join LaunchQueue Early Access",
-        milestones: [
-          { referrals: 1, reward: "🎉 VIP Early Beta Access" },
-          { referrals: 3, reward: "🚀 Skip 15 spots instantly" },
-          { referrals: 5, reward: "👑 Lifetime Pro Badge + Swag" },
-          { referrals: 10, reward: "💎 VIP Founder Lounge Access" },
-        ],
-        features: [
-          { icon: "⚡", title: "Gamified Referral Queue", description: "Every signup receives a personal share link that moves them up in real time." },
-          { icon: "🔗", title: "One-Line Embed SDK", description: "Drop into any website, React app, or Webflow page in seconds." },
-          { icon: "🛡️", title: "Anti-Fraud & Bot Shield", description: "Automatic disposable email filtering and referral verification." },
-        ],
-      });
-    }
+    const waitlist = await Waitlist.findOne({ slug: req.params.slug });
 
     if (!waitlist) {
       return res.status(404).json({ error: "Waitlist not found" });
@@ -88,36 +54,7 @@ async function join(req, res) {
         .json({ error: "Please use a real, non-disposable email address" });
     }
 
-    let waitlist = await Waitlist.findOne({ slug: req.params.slug });
-    
-    // Auto-create default launchqueue waitlist if it doesn't exist yet
-    if (!waitlist && req.params.slug === "launchqueue") {
-      const Founder = require("../models/Founder");
-      let founder = await Founder.findOne();
-      if (!founder) {
-        founder = await Founder.create({
-          email: "founder@launchqueue.com",
-          password: "password123",
-          plan: "starter",
-        });
-      }
-      waitlist = await Waitlist.create({
-        founderId: founder._id,
-        name: "LaunchQueue",
-        slug: "launchqueue",
-        description: "The viral waitlist engine built for high-velocity product launches.",
-        heroHeadline: "Waitlists that grow themselves",
-        heroSubheadline: "Give your launch audience a live queue position they can climb by referring friends.",
-        accentColor: "#2563eb",
-        ctaText: "Join LaunchQueue Early Access",
-        milestones: [
-          { referrals: 1, reward: "🎉 VIP Early Beta Access" },
-          { referrals: 3, reward: "🚀 Skip 15 spots instantly" },
-          { referrals: 5, reward: "👑 Lifetime Pro Badge + Swag" },
-          { referrals: 10, reward: "💎 VIP Founder Lounge Access" },
-        ],
-      });
-    }
+    const waitlist = await Waitlist.findOne({ slug: req.params.slug });
 
     if (!waitlist) {
       return res.status(404).json({ error: "Waitlist not found" });
@@ -270,4 +207,122 @@ async function checkPosition(req, res) {
   }
 }
 
-module.exports = { getWaitlistInfo, join, checkPosition };
+// Safe email masking utility for public endpoints
+function maskEmail(email) {
+  if (!email || typeof email !== "string") return "Anonymous";
+  const [user, domain] = email.split("@");
+  if (!domain) return user.slice(0, 2) + "***";
+  const maskedUser =
+    user.length <= 2 ? user[0] + "***" : user[0] + "***" + user[user.length - 1];
+  const domainParts = domain.split(".");
+  const domainName = domainParts[0];
+  const ext = domainParts.slice(1).join(".");
+  const maskedDomain =
+    domainName.length <= 2
+      ? domainName[0] + "***"
+      : domainName[0] + "***" + domainName[domainName.length - 1];
+  return `${maskedUser}@${maskedDomain}${ext ? "." + ext : ""}`;
+}
+
+// GET /api/w/:slug/leaderboard (public) — Top 10 referrers with anonymized emails
+async function getLeaderboard(req, res) {
+  try {
+    const waitlist = await Waitlist.findOne({ slug: req.params.slug });
+    if (!waitlist) {
+      return res.status(404).json({ error: "Waitlist not found" });
+    }
+
+    const topReferrers = await Signup.find({
+      waitlistId: waitlist._id,
+      referralCount: { $gt: 0 },
+    })
+      .sort({ referralCount: -1, currentPosition: 1 })
+      .limit(10)
+      .select("email referralCount currentPosition");
+
+    const leaderboard = topReferrers.map((r, index) => ({
+      _id: r._id,
+      rank: index + 1,
+      anonymizedEmail: maskEmail(r.email),
+      email: maskEmail(r.email),
+      referralCount: r.referralCount,
+      currentPosition: r.currentPosition,
+    }));
+
+    res.json({ leaderboard });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+const PageView = require("../models/PageView");
+
+// POST /api/w/:slug/visit (public) — Track unique page views with deduplication
+async function recordVisit(req, res) {
+  try {
+    const { visitorId } = req.body;
+    if (!visitorId || typeof visitorId !== "string") {
+      return res.status(400).json({ error: "visitorId required" });
+    }
+
+    const waitlist = await Waitlist.findOne({ slug: req.params.slug });
+    if (!waitlist) {
+      return res.status(404).json({ error: "Waitlist not found" });
+    }
+
+    // Deduplicate: ignore rapid refreshes from the same visitor within 30 minutes
+    const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
+    const recentVisit = await PageView.findOne({
+      waitlistId: waitlist._id,
+      visitorId: visitorId.trim(),
+      createdAt: { $gte: thirtyMinutesAgo },
+    });
+
+    if (!recentVisit) {
+      await PageView.create({
+        waitlistId: waitlist._id,
+        visitorId: visitorId.trim(),
+      });
+    }
+
+    res.json({ recorded: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// GET /api/w/:slug/activity (public) — Recent anonymized signup activity
+async function getRecentActivity(req, res) {
+  try {
+    const waitlist = await Waitlist.findOne({ slug: req.params.slug });
+    if (!waitlist) {
+      return res.status(404).json({ error: "Waitlist not found" });
+    }
+
+    const recentSignups = await Signup.find({ waitlistId: waitlist._id })
+      .sort({ createdAt: -1 })
+      .limit(8)
+      .select("email currentPosition createdAt");
+
+    const activities = recentSignups.map((s) => ({
+      id: s._id,
+      userMasked: maskEmail(s.email),
+      position: s.currentPosition,
+      createdAt: s.createdAt,
+    }));
+
+    res.json({ activities });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+module.exports = {
+  getWaitlistInfo,
+  join,
+  checkPosition,
+  getLeaderboard,
+  recordVisit,
+  getRecentActivity,
+  maskEmail,
+};

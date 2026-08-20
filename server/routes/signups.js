@@ -1,10 +1,21 @@
 const express = require("express");
 const router = express.Router();
-const { getWaitlistInfo, join, checkPosition } = require("../controllers/signupController");
+const {
+  getWaitlistInfo,
+  join,
+  checkPosition,
+  getLeaderboard,
+  recordVisit,
+  getRecentActivity,
+} = require("../controllers/signupController");
 const { signupLimiter } = require("../middleware/rateLimiter");
 
 // all public — no authMiddleware here
 router.get("/:slug", getWaitlistInfo);
 router.post("/:slug/signup", signupLimiter, join);
 router.get("/:slug/position", checkPosition);
+router.get("/:slug/leaderboard", getLeaderboard);
+router.post("/:slug/visit", recordVisit);
+router.get("/:slug/activity", getRecentActivity);
+
 module.exports = router;
