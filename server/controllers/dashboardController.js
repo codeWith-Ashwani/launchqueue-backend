@@ -1,5 +1,6 @@
 const Waitlist = require("../models/Waitlist");
 const Signup = require("../models/Signup");
+const PageView = require("../models/PageView");
 
 // GET /api/waitlists/:id/stats (protected)
 async function getStats(req, res) {
@@ -16,6 +17,17 @@ async function getStats(req, res) {
     const totalSignups = await Signup.countDocuments({
       waitlistId: waitlist._id,
     });
+
+    // Count unique visitors from PageView records (fallback to at least totalSignups)
+    const uniqueVisitors = (
+      await PageView.distinct("visitorId", { waitlistId: waitlist._id })
+    ).length;
+    const totalVisitors = Math.max(uniqueVisitors, totalSignups);
+
+    const conversionRate =
+      totalVisitors > 0
+        ? Math.min(100, Math.round((totalSignups / totalVisitors) * 100))
+        : 0;
 
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
@@ -77,7 +89,9 @@ async function getStats(req, res) {
 
     res.json({
       waitlist,
+      totalVisitors,
       totalSignups,
+      conversionRate,
       signupsToday,
       referralRate,
       topReferrers,
