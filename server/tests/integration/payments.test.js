@@ -44,7 +44,7 @@ describe("Lemon Squeezy Webhook Integration Tests", () => {
     expect(res.body).toHaveProperty("error", "Invalid signature");
   });
 
-  it("successfully updates founder plan when valid signature is verified", async () => {
+  it("successfully updates founder plan, subscription ID, and portal URL when valid signature is verified", async () => {
     const payloadObject = {
       meta: {
         event_name: "subscription_created",
@@ -53,9 +53,13 @@ describe("Lemon Squeezy Webhook Integration Tests", () => {
         },
       },
       data: {
+        id: "sub_12345678",
         attributes: {
           status: "active",
           variant_id: "variant_pro_999",
+          urls: {
+            customer_portal: "https://launchqueue.lemonsqueezy.com/billing/sub_12345678",
+          },
         },
       },
     };
@@ -77,5 +81,7 @@ describe("Lemon Squeezy Webhook Integration Tests", () => {
 
     const updatedFounder = await Founder.findById(founder._id);
     expect(updatedFounder.plan).toBe("pro");
+    expect(updatedFounder.lemonSqueezySubscriptionId).toBe("sub_12345678");
+    expect(updatedFounder.customerPortalUrl).toBe("https://launchqueue.lemonsqueezy.com/billing/sub_12345678");
   });
 });

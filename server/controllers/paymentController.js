@@ -67,6 +67,25 @@ async function createCheckout(req, res) {
   }
 }
 
+// GET /api/payments/portal  (protected)
+async function getCustomerPortal(req, res) {
+  try {
+    const founder = await Founder.findById(req.founder._id);
+    if (!founder || !founder.customerPortalUrl) {
+      return res.status(404).json({
+        error: "No active customer portal found. Please subscribe to a paid plan first.",
+      });
+    }
+
+    res.json({ portalUrl: founder.customerPortalUrl });
+  } catch (err) {
+    console.error("GetCustomerPortal error:", err);
+    res.status(500).json({
+      error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
+    });
+  }
+}
+
 // POST /api/payments/webhook  (public, signature-verified)
 async function handleWebhook(req, res) {
   try {
@@ -93,7 +112,18 @@ async function handleWebhook(req, res) {
 
       if (status === "active") {
         const plan = variantToPlan[variantId] || "free";
-        await Founder.findByIdAndUpdate(founderId, { plan });
+        const updateData = { plan };
+
+        const customerPortalUrl = event.data.attributes.urls?.customer_portal;
+        if (customerPortalUrl) {
+          updateData.customerPortalUrl = customerPortalUrl;
+        }
+
+        if (event.data.id) {
+          updateData.lemonSqueezySubscriptionId = String(event.data.id);
+        }
+
+        await Founder.findByIdAndUpdate(founderId, { $set: updateData });
       } else if (status === "cancelled" || status === "expired") {
         await Founder.findByIdAndUpdate(founderId, { plan: "free" });
       }
@@ -108,4 +138,4 @@ async function handleWebhook(req, res) {
   }
 }
 
-module.exports = { createCheckout, handleWebhook };
+module.exports = { createCheckout, getCustomerPortal, handleWebhook };

@@ -2,6 +2,11 @@ const mongoose = require("mongoose");
 
 const founderSchema = new mongoose.Schema(
   {
+    name: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     email: {
       type: String,
       required: true,
@@ -17,6 +22,14 @@ const founderSchema = new mongoose.Schema(
       type: String,
       enum: ["free", "starter", "pro", "agency"],
       default: "free",
+    },
+    lemonSqueezySubscriptionId: {
+      type: String,
+      default: null,
+    },
+    customerPortalUrl: {
+      type: String,
+      default: null,
     },
   },
   { timestamps: true }
