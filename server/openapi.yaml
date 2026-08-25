@@ -125,6 +125,78 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /api/auth/profile:
+    patch:
+      summary: Update founder name or email address
+      tags: [Authentication]
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  example: Alex Founder
+                email:
+                  type: string
+                  format: email
+                  example: founder@company.com
+      responses:
+        '200':
+          description: Profile updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  founder:
+                    $ref: '#/components/schemas/FounderProfile'
+        '400':
+          description: Validation error
+        '409':
+          description: Email already in use by another founder
+
+  /api/auth/password:
+    patch:
+      summary: Update founder account password
+      tags: [Authentication]
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword]
+              properties:
+                currentPassword:
+                  type: string
+                newPassword:
+                  type: string
+                  minLength: 6
+      responses:
+        '200':
+          description: Password updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Password updated successfully
+        '400':
+          description: Validation error
+        '401':
+          description: Incorrect current password
+
   # ============================================================================
   # Waitlist Management & Analytics (/api/waitlists)
   # ============================================================================
@@ -330,6 +402,28 @@ paths:
                     example: https://launchqueue.lemonsqueezy.com/checkout/buy/...
         '400':
           description: Invalid plan selected
+
+  /api/payments/portal:
+    get:
+      summary: Retrieve Lemon Squeezy customer billing portal URL for authenticated founder
+      tags: [Payments]
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Customer portal URL
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  portalUrl:
+                    type: string
+                    example: https://launchqueue.lemonsqueezy.com/billing
+        '404':
+          description: No active customer portal found / founder has never subscribed
+
 
   /api/payments/webhook:
     post:

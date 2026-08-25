@@ -38,7 +38,13 @@ async function register(req, res) {
 
     res.status(201).json({
       token,
-      founder: { id: founder._id, email: founder.email, plan: founder.plan },
+      founder: {
+        id: founder._id,
+        name: founder.name,
+        email: founder.email,
+        plan: founder.plan,
+        customerPortalUrl: founder.customerPortalUrl,
+      },
     });
   } catch (err) {
     console.error("Register error:", err);
@@ -69,7 +75,13 @@ async function login(req, res) {
 
     res.json({
       token,
-      founder: { id: founder._id, email: founder.email, plan: founder.plan },
+      founder: {
+        id: founder._id,
+        name: founder.name,
+        email: founder.email,
+        plan: founder.plan,
+        customerPortalUrl: founder.customerPortalUrl,
+      },
     });
   } catch (err) {
     console.error("Login error:", err);
@@ -92,7 +104,90 @@ async function logout(req, res) {
 
 // GET /api/auth/me  (protected)
 async function getMe(req, res) {
-  res.json({ founder: req.founder });
+  res.json({
+    founder: {
+      id: req.founder._id,
+      name: req.founder.name,
+      email: req.founder.email,
+      plan: req.founder.plan,
+      customerPortalUrl: req.founder.customerPortalUrl,
+    },
+  });
 }
 
-module.exports = { register, login, logout, getMe };
+// PATCH /api/auth/profile  (protected)
+async function updateProfile(req, res) {
+  try {
+    const { name, email } = req.body;
+    const founderId = req.founder._id;
+
+    if (email && email.toLowerCase() !== req.founder.email.toLowerCase()) {
+      const existing = await Founder.findOne({ email: email.toLowerCase() });
+      if (existing && existing._id.toString() !== founderId.toString()) {
+        return res.status(409).json({ error: "An account with this email already exists" });
+      }
+    }
+
+    const updates = {};
+    if (name !== undefined) updates.name = name;
+    if (email !== undefined) updates.email = email.toLowerCase();
+
+    const updatedFounder = await Founder.findByIdAndUpdate(
+      founderId,
+      { $set: updates },
+      { new: true, runValidators: true }
+    ).select("-password");
+
+    res.json({
+      founder: {
+        id: updatedFounder._id,
+        name: updatedFounder.name,
+        email: updatedFounder.email,
+        plan: updatedFounder.plan,
+        customerPortalUrl: updatedFounder.customerPortalUrl,
+      },
+    });
+  } catch (err) {
+    console.error("Update profile error:", err);
+    res.status(500).json({
+      error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
+    });
+  }
+}
+
+// PATCH /api/auth/password  (protected)
+async function changePassword(req, res) {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    const founderId = req.founder._id;
+
+    const founder = await Founder.findById(founderId);
+    if (!founder) {
+      return res.status(404).json({ error: "Founder not found" });
+    }
+
+    const match = await bcrypt.compare(currentPassword, founder.password);
+    if (!match) {
+      return res.status(401).json({ error: "Incorrect current password" });
+    }
+
+    founder.password = await bcrypt.hash(newPassword, 10);
+    await founder.save();
+
+    res.json({ message: "Password updated successfully" });
+  } catch (err) {
+    console.error("Change password error:", err);
+    res.status(500).json({
+      error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
+    });
+  }
+}
+
+module.exports = {
+  register,
+  login,
+  logout,
+  getMe,
+  updateProfile,
+  changePassword,
+};

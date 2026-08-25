@@ -22,6 +22,30 @@ const loginSchema = z.object({
     .min(1, "Password is required"),
 });
 
+const updateProfileSchema = z
+  .object({
+    name: z.string().trim().max(100, "Name cannot exceed 100 characters").optional(),
+    email: z.string().trim().toLowerCase().email("Please enter a valid email address").optional(),
+  })
+  .refine(
+    (data) => data.name !== undefined || data.email !== undefined,
+    { message: "At least one field (name or email) must be provided" }
+  );
+
+const changePasswordSchema = z
+  .object({
+    currentPassword: z
+      .string({ required_error: "Current password is required", invalid_type_error: "Current password must be a string" })
+      .min(1, "Current password is required"),
+    newPassword: z
+      .string({ required_error: "New password is required", invalid_type_error: "New password must be a string" })
+      .min(6, "New password must be at least 6 characters"),
+  })
+  .refine(
+    (data) => data.newPassword !== data.currentPassword,
+    { message: "New password must be different from current password", path: ["newPassword"] }
+  );
+
 const createWaitlistSchema = z.object({
   name: z
     .string({ required_error: "Waitlist name is required", invalid_type_error: "Waitlist name must be a string" })
@@ -70,6 +94,8 @@ const signupJoinSchema = z.object({
 module.exports = {
   registerSchema,
   loginSchema,
+  updateProfileSchema,
+  changePasswordSchema,
   createWaitlistSchema,
   updateWaitlistSchema,
   signupJoinSchema,
