@@ -30,7 +30,10 @@ async function create(req, res) {
 
     res.status(201).json({ waitlist });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("Waitlist create error:", err);
+    res.status(500).json({
+      error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
+    });
   }
 }
 
@@ -49,7 +52,10 @@ async function list(req, res) {
 
     res.json({ waitlists: withCounts });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("Waitlist list error:", err);
+    res.status(500).json({
+      error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
+    });
   }
 }
 
@@ -62,17 +68,20 @@ async function getOne(req, res) {
     }
     res.json({ waitlist });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("Waitlist getOne error:", err);
+    res.status(500).json({
+      error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
+    });
   }
 }
 
 async function update(req, res) {
   try {
     const allowedFields = [
-  "name", "description", "thankYouMessage", "paused",
-  "heroHeadline", "heroSubheadline", "heroImageUrl",
-  "accentColor", "ctaText", "features", "milestones",
-];
+      "name", "description", "thankYouMessage", "paused",
+      "heroHeadline", "heroSubheadline", "heroImageUrl",
+      "accentColor", "ctaText", "features", "milestones",
+    ];
     const updates = {};
     for (const field of allowedFields) {
       if (req.body[field] !== undefined) updates[field] = req.body[field];
@@ -90,7 +99,10 @@ async function update(req, res) {
 
     res.json({ waitlist });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("Waitlist update error:", err);
+    res.status(500).json({
+      error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
+    });
   }
 }
 
