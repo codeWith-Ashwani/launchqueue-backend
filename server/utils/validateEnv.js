@@ -21,23 +21,32 @@ function validateEnv() {
     return;
   }
 
-  const missing = [];
+  // Hard-required core variables
+  const missingCore = [];
   for (const v of requiredVars) {
     if (!process.env[v]) {
-      missing.push(v);
+      missingCore.push(v);
     }
   }
 
-  for (const v of paymentVars) {
-    if (!process.env[v]) {
-      missing.push(v);
-    }
-  }
-
-  if (missing.length > 0) {
-    const errorMsg = `❌ Fatal Environment Error: Missing required environment variables:\n  - ${missing.join("\n  - ")}\nPlease verify your .env configuration before starting the server.`;
+  if (missingCore.length > 0) {
+    const errorMsg = `❌ Fatal Environment Error: Missing required environment variables:\n  - ${missingCore.join("\n  - ")}\nPlease verify your .env configuration before starting the server.`;
     console.error(errorMsg);
     throw new Error(errorMsg);
+  }
+
+  // Soft check for optional payment variables
+  const missingPayment = [];
+  for (const v of paymentVars) {
+    if (!process.env[v]) {
+      missingPayment.push(v);
+    }
+  }
+
+  if (missingPayment.length > 0) {
+    console.warn(
+      `⚠️ Payment features disabled: missing LEMONSQUEEZY_* env vars (${missingPayment.join(", ")}). Auth and waitlist features will still work.`
+    );
   }
 }
 

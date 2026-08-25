@@ -34,6 +34,11 @@ const signupSchema = new mongoose.Schema(
       type: Number,
       required: true,
     },
+    status: {
+      type: String,
+      enum: ["waiting", "invited"],
+      default: "waiting",
+    },
   },
   { timestamps: true }
 );
