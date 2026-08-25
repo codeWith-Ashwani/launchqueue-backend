@@ -6,10 +6,12 @@ process.env.LEMONSQUEEZY_PRO_VARIANT_ID = "variant_pro_999";
 
 const app = require("../../index");
 const Founder = require("../../models/Founder");
+const generateToken = require("../../utils/generateToken");
 const { connectDb, closeDb, clearDb } = require("../setupDb");
 
-describe("Lemon Squeezy Webhook Integration Tests", () => {
+describe("Lemon Squeezy Webhook & Payment Configuration Tests", () => {
   let founder;
+  let token;
 
   beforeAll(async () => {
     await connectDb();
@@ -27,6 +29,22 @@ describe("Lemon Squeezy Webhook Integration Tests", () => {
       password: "password123",
       plan: "free",
     });
+    token = generateToken(founder._id);
+  });
+
+  it("returns 503 when payments are not configured on the server", async () => {
+    const originalApiKey = process.env.LEMONSQUEEZY_API_KEY;
+    delete process.env.LEMONSQUEEZY_API_KEY;
+
+    const res = await request(app)
+      .post("/api/payments/checkout")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ plan: "pro" });
+
+    expect(res.status).toBe(503);
+    expect(res.body).toHaveProperty("error", "Payments are not configured on this server.");
+
+    if (originalApiKey) process.env.LEMONSQUEEZY_API_KEY = originalApiKey;
   });
 
   it("returns 401 on invalid webhook signature", async () => {

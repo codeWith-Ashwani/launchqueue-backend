@@ -46,6 +46,23 @@ const changePasswordSchema = z
     { message: "New password must be different from current password", path: ["newPassword"] }
   );
 
+const requestPasswordResetSchema = z.object({
+  email: z
+    .string({ required_error: "Email is required", invalid_type_error: "Email must be a string" })
+    .trim()
+    .toLowerCase()
+    .email("Please enter a valid email address"),
+});
+
+const resetPasswordSchema = z.object({
+  token: z
+    .string({ required_error: "Reset token is required", invalid_type_error: "Reset token must be a string" })
+    .min(1, "Reset token is required"),
+  newPassword: z
+    .string({ required_error: "New password is required", invalid_type_error: "New password must be a string" })
+    .min(6, "New password must be at least 6 characters"),
+});
+
 const createWaitlistSchema = z.object({
   name: z
     .string({ required_error: "Waitlist name is required", invalid_type_error: "Waitlist name must be a string" })
@@ -91,12 +108,29 @@ const signupJoinSchema = z.object({
   ref: z.string().trim().optional(),
 });
 
+const updatePositionSchema = z.object({
+  currentPosition: z
+    .number({ required_error: "Position is required", invalid_type_error: "Position must be a number" })
+    .int("Position must be an integer")
+    .positive("Position must be a positive integer"),
+});
+
+const batchInviteSchema = z.object({
+  signupIds: z
+    .array(z.string().min(1), { required_error: "signupIds array is required" })
+    .min(1, "At least one signup ID must be provided"),
+});
+
 module.exports = {
   registerSchema,
   loginSchema,
   updateProfileSchema,
   changePasswordSchema,
+  requestPasswordResetSchema,
+  resetPasswordSchema,
   createWaitlistSchema,
   updateWaitlistSchema,
   signupJoinSchema,
+  updatePositionSchema,
+  batchInviteSchema,
 };

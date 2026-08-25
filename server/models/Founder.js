@@ -16,7 +16,18 @@ const founderSchema = new mongoose.Schema(
     },
     password: {
       type: String,
-      required: true,
+      required: false,
+      default: null,
+    },
+    authProvider: {
+      type: String,
+      enum: ["local", "google"],
+      default: "local",
+    },
+    googleId: {
+      type: String,
+      unique: true,
+      sparse: true,
     },
     plan: {
       type: String,
@@ -29,6 +40,14 @@ const founderSchema = new mongoose.Schema(
     },
     customerPortalUrl: {
       type: String,
+      default: null,
+    },
+    resetPasswordTokenHash: {
+      type: String,
+      default: null,
+    },
+    resetPasswordExpires: {
+      type: Date,
       default: null,
     },
   },

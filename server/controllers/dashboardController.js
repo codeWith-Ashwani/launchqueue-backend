@@ -53,7 +53,13 @@ async function getStats(req, res) {
     })
       .sort({ referralCount: -1 })
       .limit(10)
-      .select("email referralCount currentPosition");
+      .select("email referralCount currentPosition status");
+
+    const signups = await Signup.find({
+      waitlistId: waitlist._id,
+    })
+      .sort({ currentPosition: 1 })
+      .select("email referralCount currentPosition status createdAt");
 
     // Signups grouped by day, last 30 days, for the chart
     const thirtyDaysAgo = new Date();
@@ -95,10 +101,84 @@ async function getStats(req, res) {
       signupsToday,
       referralRate,
       topReferrers,
+      signups,
       chartData,
     });
   } catch (err) {
     console.error("Dashboard getStats error:", err);
+    res.status(500).json({
+      error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
+    });
+  }
+}
+
+// GET /api/waitlists/:id/funnel (protected)
+async function getFunnelStats(req, res) {
+  try {
+    const waitlist = await Waitlist.findOne({
+      _id: req.params.id,
+      founderId: req.founder._id,
+    });
+
+    if (!waitlist) {
+      return res.status(404).json({ error: "Waitlist not found" });
+    }
+
+    const dateFilter = {};
+    if (req.query.days) {
+      const days = parseInt(req.query.days, 10);
+      if (!isNaN(days) && days > 0) {
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - days);
+        dateFilter.createdAt = { $gte: startDate };
+      }
+    }
+
+    const totalPageViews = await PageView.countDocuments({
+      waitlistId: waitlist._id,
+      ...dateFilter,
+    });
+
+    const totalSignups = await Signup.countDocuments({
+      waitlistId: waitlist._id,
+      ...dateFilter,
+    });
+
+    const conversionRate =
+      totalPageViews > 0
+        ? Math.min(100, Math.round((totalSignups / totalPageViews) * 100))
+        : 0;
+
+    const directSignups = await Signup.countDocuments({
+      waitlistId: waitlist._id,
+      referredBy: null,
+      ...dateFilter,
+    });
+
+    const referredSignups = await Signup.countDocuments({
+      waitlistId: waitlist._id,
+      referredBy: { $ne: null },
+      ...dateFilter,
+    });
+
+    const topReferrers = await Signup.find({
+      waitlistId: waitlist._id,
+      referralCount: { $gt: 0 },
+    })
+      .sort({ referralCount: -1 })
+      .limit(5)
+      .select("email refCode referralCount currentPosition status");
+
+    res.json({
+      totalPageViews,
+      totalSignups,
+      conversionRate,
+      directSignups,
+      referredSignups,
+      topReferrers,
+    });
+  } catch (err) {
+    console.error("Dashboard getFunnelStats error:", err);
     res.status(500).json({
       error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
     });
@@ -155,5 +235,6 @@ async function exportCsv(req, res) {
 
 module.exports = {
   getStats,
+  getFunnelStats,
   exportCsv,
 };

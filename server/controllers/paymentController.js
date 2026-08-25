@@ -1,6 +1,20 @@
 const crypto = require("crypto");
 const Founder = require("../models/Founder");
 
+function isCheckoutConfigured() {
+  return Boolean(
+    process.env.LEMONSQUEEZY_API_KEY &&
+    process.env.LEMONSQUEEZY_STORE_ID &&
+    process.env.LEMONSQUEEZY_STARTER_VARIANT_ID &&
+    process.env.LEMONSQUEEZY_PRO_VARIANT_ID &&
+    process.env.LEMONSQUEEZY_AGENCY_VARIANT_ID
+  );
+}
+
+function isWebhookConfigured() {
+  return Boolean(process.env.LEMONSQUEEZY_WEBHOOK_SECRET);
+}
+
 function getVariantToPlan() {
   return {
     [process.env.LEMONSQUEEZY_STARTER_VARIANT_ID]: "starter",
@@ -20,6 +34,12 @@ function getPlanToVariant() {
 // POST /api/payments/checkout  (protected)
 async function createCheckout(req, res) {
   try {
+    if (!isCheckoutConfigured()) {
+      return res.status(503).json({
+        error: "Payments are not configured on this server.",
+      });
+    }
+
     const { plan } = req.body;
     const planToVariant = getPlanToVariant();
     const variantId = planToVariant[plan];
@@ -89,6 +109,12 @@ async function getCustomerPortal(req, res) {
 // POST /api/payments/webhook  (public, signature-verified)
 async function handleWebhook(req, res) {
   try {
+    if (!isWebhookConfigured()) {
+      return res.status(503).json({
+        error: "Payments are not configured on this server.",
+      });
+    }
+
     const signature = req.headers["x-signature"];
     const hmac = crypto.createHmac("sha256", process.env.LEMONSQUEEZY_WEBHOOK_SECRET);
     const digest = hmac.update(req.body).digest("hex"); // req.body is the raw Buffer here

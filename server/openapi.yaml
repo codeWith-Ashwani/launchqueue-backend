@@ -197,6 +197,69 @@ paths:
         '401':
           description: Incorrect current password
 
+  /api/auth/forgot-password:
+    post:
+      summary: Request password reset link (Rate limited, non-enumerating)
+      tags: [Authentication]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: founder@company.com
+      responses:
+        '200':
+          description: Generic confirmation message sent regardless of email existence
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: If an account exists for this email, a reset link has been sent.
+        '400':
+          description: Invalid email format
+
+  /api/auth/reset-password:
+    post:
+      summary: Reset account password using single-use reset token (Rate limited)
+      tags: [Authentication]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, newPassword]
+              properties:
+                token:
+                  type: string
+                  example: d4f8a9...
+                newPassword:
+                  type: string
+                  minLength: 6
+                  example: newSecretPassword123
+      responses:
+        '200':
+          description: Password reset successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Password has been successfully reset. You can now log in.
+        '400':
+          description: Invalid or expired reset link
+
   # ============================================================================
   # Waitlist Management & Analytics (/api/waitlists)
   # ============================================================================
