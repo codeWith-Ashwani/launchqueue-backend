@@ -1,0 +1,883 @@
+openapi: 3.0.3
+info:
+  title: LaunchQueue API
+  version: 1.0.0
+  description: >
+    Production REST API documentation for LaunchQueue — the viral waitlist
+    and referral marketing engine for modern SaaS launches.
+servers:
+  - url: http://localhost:5000
+    description: Local development server
+  - url: https://api.launchqueue.dev
+    description: Production API server
+
+paths:
+  # ============================================================================
+  # Authentication (/api/auth)
+  # ============================================================================
+  /api/auth/register:
+    post:
+      summary: Register a new founder account
+      tags: [Authentication]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Founder registered successfully. Sets httpOnly token cookie.
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+                example: token=eyJhbGciOi...; Path=/; HttpOnly; SameSite=Lax
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSuccessResponse'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+        '409':
+          description: Account with this email already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/auth/login:
+    post:
+      summary: Authenticate founder and initiate session
+      tags: [Authentication]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful. Sets httpOnly token cookie.
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+                example: token=eyJhbGciOi...; Path=/; HttpOnly; SameSite=Lax
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSuccessResponse'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+        '401':
+          description: Invalid email or password
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/auth/logout:
+    post:
+      summary: Log out and invalidate httpOnly session cookie
+      tags: [Authentication]
+      responses:
+        '200':
+          description: Logged out successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Logged out successfully
+
+  /api/auth/me:
+    get:
+      summary: Retrieve current authenticated founder profile
+      tags: [Authentication]
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Founder profile details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  founder:
+                    $ref: '#/components/schemas/FounderProfile'
+        '401':
+          description: Unauthorized / invalid session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ============================================================================
+  # Waitlist Management & Analytics (/api/waitlists)
+  # ============================================================================
+  /api/waitlists:
+    post:
+      summary: Create a new waitlist campaign
+      tags: [Waitlists]
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWaitlistRequest'
+      responses:
+        '201':
+          description: Waitlist campaign created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  waitlist:
+                    $ref: '#/components/schemas/Waitlist'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+        '401':
+          description: Unauthorized
+
+    get:
+      summary: List all waitlist campaigns owned by authenticated founder
+      tags: [Waitlists]
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of waitlists with subscriber counts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  waitlists:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WaitlistWithCount'
+        '401':
+          description: Unauthorized
+
+  /api/waitlists/{id}:
+    get:
+      summary: Fetch single waitlist details
+      tags: [Waitlists]
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Waitlist configuration object
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  waitlist:
+                    $ref: '#/components/schemas/Waitlist'
+        '404':
+          description: Waitlist not found
+
+    patch:
+      summary: Update waitlist branding, milestones, and copy
+      tags: [Waitlists]
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateWaitlistRequest'
+      responses:
+        '200':
+          description: Waitlist updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  waitlist:
+                    $ref: '#/components/schemas/Waitlist'
+        '400':
+          description: Validation error
+        '404':
+          description: Waitlist not found
+
+  /api/waitlists/{id}/stats:
+    get:
+      summary: Retrieve campaign analytics, funnel conversion, and growth trajectory
+      tags: [Analytics]
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Analytics and 30-day time-series data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WaitlistStatsResponse'
+        '404':
+          description: Waitlist not found
+
+  /api/waitlists/{id}/export:
+    get:
+      summary: Export subscriber leads to CSV format (Paid plan gated)
+      tags: [Waitlists]
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Downloadable CSV spreadsheet
+          content:
+            text/csv:
+              schema:
+                type: string
+                example: "email,position,referralCount,joinedAt\nuser@example.com,1,3,2026-08-25T12:00:00.000Z"
+        '403':
+          description: Paid plan required to export leads
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  upgradeRequired:
+                    type: boolean
+
+  # ============================================================================
+  # Payments & Lemon Squeezy (/api/payments)
+  # ============================================================================
+  /api/payments/checkout:
+    post:
+      summary: Create hosted checkout session for subscription tier upgrade
+      tags: [Payments]
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [plan]
+              properties:
+                plan:
+                  type: string
+                  enum: [starter, pro, agency]
+      responses:
+        '200':
+          description: Checkout URL generated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  checkoutUrl:
+                    type: string
+                    example: https://launchqueue.lemonsqueezy.com/checkout/buy/...
+        '400':
+          description: Invalid plan selected
+
+  /api/payments/webhook:
+    post:
+      summary: Handle Lemon Squeezy subscription webhook lifecycle events
+      tags: [Payments]
+      parameters:
+        - in: header
+          name: x-signature
+          required: true
+          schema:
+            type: string
+            description: HMAC SHA-256 signature of the raw request payload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Webhook processed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  received:
+                    type: boolean
+                    example: true
+        '401':
+          description: Invalid HMAC signature
+
+  # ============================================================================
+  # Public Waitlist & Referrals (/api/w)
+  # ============================================================================
+  /api/w/{slug}:
+    get:
+      summary: Retrieve public waitlist campaign metadata and branding
+      tags: [Public Waitlist]
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Public campaign details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicWaitlistInfo'
+        '404':
+          description: Waitlist not found
+
+  /api/w/{slug}/signup:
+    post:
+      summary: Join a waitlist or retrieve existing subscriber queue rank
+      tags: [Public Waitlist]
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignupJoinRequest'
+      responses:
+        '201':
+          description: Fresh subscriber joined queue
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignupJoinResponse'
+        '200':
+          description: Existing subscriber looked up (alreadyJoined is true)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignupJoinResponse'
+        '400':
+          description: Validation error or disposable email address
+        '403':
+          description: Waitlist is paused
+        '404':
+          description: Waitlist not found
+
+  /api/w/{slug}/position:
+    get:
+      summary: Query subscriber queue rank and milestone progress by refCode or email
+      tags: [Public Waitlist]
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: ref
+          schema:
+            type: string
+          description: 8-character unique referral code
+        - in: query
+          name: email
+          schema:
+            type: string
+          description: Subscriber email address
+      responses:
+        '200':
+          description: Live queue position and milestone rewards
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PositionResponse'
+        '400':
+          description: Missing ref code or email query parameter
+        '404':
+          description: Signup not found
+
+  /api/w/{slug}/leaderboard:
+    get:
+      summary: Get Top 10 community referral advocates with masked PII
+      tags: [Public Waitlist]
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Top 10 advocates
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  leaderboard:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/LeaderboardEntry'
+
+  /api/w/{slug}/activity:
+    get:
+      summary: Retrieve real-time activity ticker stream with masked emails
+      tags: [Public Waitlist]
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Recent subscriber activity
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  activities:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ActivityEntry'
+
+  /api/w/{slug}/visit:
+    post:
+      summary: Record unique visitor pageview with 30-min deduplication
+      tags: [Public Waitlist]
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [visitorId]
+              properties:
+                visitorId:
+                  type: string
+      responses:
+        '200':
+          description: Pageview recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recorded:
+                    type: boolean
+                    example: true
+
+# ============================================================================
+# Components & Schemas
+# ============================================================================
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: token
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    RegisterRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: founder@company.com
+        password:
+          type: string
+          minLength: 6
+          example: secretPassword123
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: founder@company.com
+        password:
+          type: string
+          example: secretPassword123
+
+    FounderProfile:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 64b8f...
+        email:
+          type: string
+          example: founder@company.com
+        plan:
+          type: string
+          enum: [free, starter, pro, agency]
+          example: free
+
+    AuthSuccessResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          example: eyJhbGciOi...
+        founder:
+          $ref: '#/components/schemas/FounderProfile'
+
+    CreateWaitlistRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          example: RocketPay
+        description:
+          type: string
+          example: Modern instant global developer payouts
+
+    UpdateWaitlistRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        thankYouMessage:
+          type: string
+        paused:
+          type: boolean
+        heroHeadline:
+          type: string
+        heroSubheadline:
+          type: string
+        heroImageUrl:
+          type: string
+        accentColor:
+          type: string
+        ctaText:
+          type: string
+        features:
+          type: array
+          items:
+            $ref: '#/components/schemas/FeatureItem'
+        milestones:
+          type: array
+          items:
+            $ref: '#/components/schemas/MilestoneItem'
+
+    FeatureItem:
+      type: object
+      required: [title]
+      properties:
+        icon:
+          type: string
+          example: "⚡"
+        title:
+          type: string
+          example: Instant Transfers
+        description:
+          type: string
+          example: Zero settlement delay
+
+    MilestoneItem:
+      type: object
+      required: [referrals, reward]
+      properties:
+        referrals:
+          type: integer
+          example: 3
+        reward:
+          type: string
+          example: Priority beta access
+
+    Waitlist:
+      type: object
+      properties:
+        _id:
+          type: string
+        name:
+          type: string
+        slug:
+          type: string
+        description:
+          type: string
+        paused:
+          type: boolean
+        features:
+          type: array
+          items:
+            $ref: '#/components/schemas/FeatureItem'
+        milestones:
+          type: array
+          items:
+            $ref: '#/components/schemas/MilestoneItem'
+        createdAt:
+          type: string
+          format: date-time
+
+    WaitlistWithCount:
+      allOf:
+        - $ref: '#/components/schemas/Waitlist'
+        - type: object
+          properties:
+            signupCount:
+              type: integer
+              example: 142
+
+    PublicWaitlistInfo:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        slug:
+          type: string
+        paused:
+          type: boolean
+        totalSignups:
+          type: integer
+        heroHeadline:
+          type: string
+        heroSubheadline:
+          type: string
+        heroImageUrl:
+          type: string
+        accentColor:
+          type: string
+        ctaText:
+          type: string
+        features:
+          type: array
+          items:
+            $ref: '#/components/schemas/FeatureItem'
+        milestones:
+          type: array
+          items:
+            $ref: '#/components/schemas/MilestoneItem'
+
+    SignupJoinRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        ref:
+          type: string
+          example: REF12345
+
+    SignupJoinResponse:
+      type: object
+      properties:
+        position:
+          type: integer
+          example: 42
+        basePosition:
+          type: integer
+          example: 52
+        referralCount:
+          type: integer
+          example: 2
+        positionsGained:
+          type: integer
+          example: 10
+        refCode:
+          type: string
+          example: ABC12345
+        email:
+          type: string
+          example: user@example.com
+        waitlistName:
+          type: string
+        milestones:
+          type: array
+          items:
+            $ref: '#/components/schemas/MilestoneItem'
+        alreadyJoined:
+          type: boolean
+
+    PositionResponse:
+      type: object
+      properties:
+        position:
+          type: integer
+        basePosition:
+          type: integer
+        referralCount:
+          type: integer
+        positionsGained:
+          type: integer
+        refCode:
+          type: string
+        email:
+          type: string
+        waitlistName:
+          type: string
+        milestones:
+          type: array
+          items:
+            $ref: '#/components/schemas/MilestoneItem'
+
+    LeaderboardEntry:
+      type: object
+      properties:
+        _id:
+          type: string
+        rank:
+          type: integer
+          example: 1
+        anonymizedEmail:
+          type: string
+          example: as***n@gm***.com
+        referralCount:
+          type: integer
+          example: 14
+        currentPosition:
+          type: integer
+          example: 1
+
+    ActivityEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        userMasked:
+          type: string
+          example: jo***e@ex***.com
+        position:
+          type: integer
+          example: 45
+        createdAt:
+          type: string
+          format: date-time
+
+    WaitlistStatsResponse:
+      type: object
+      properties:
+        waitlist:
+          $ref: '#/components/schemas/Waitlist'
+        totalVisitors:
+          type: integer
+        totalSignups:
+          type: integer
+        conversionRate:
+          type: number
+        signupsToday:
+          type: integer
+        referralRate:
+          type: number
+        topReferrers:
+          type: array
+          items:
+            type: object
+            properties:
+              email:
+                type: string
+              referralCount:
+                type: integer
+              currentPosition:
+                type: integer
+        chartData:
+          type: array
+          items:
+            type: object
+            properties:
+              date:
+                type: string
+                example: "2026-08-25"
+              signups:
+                type: integer
+                example: 12
+
+    ValidationErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          example: Please enter a valid email address
+        details:
+          type: object
+          additionalProperties:
+            type: string
+          example:
+            email: Please enter a valid email address
+            password: Password must be at least 6 characters
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          example: Something went wrong

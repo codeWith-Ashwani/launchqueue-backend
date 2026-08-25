@@ -1,5 +1,6 @@
 const Waitlist = require("../models/Waitlist");
 const Signup = require("../models/Signup");
+const PageView = require("../models/PageView");
 const generateRefCode = require("../utils/generateRefCode");
 const calculatePosition = require("../utils/calculatePosition");
 const sendEmail = require("../utils/sendEmail");
@@ -35,7 +36,10 @@ async function getWaitlistInfo(req, res) {
       milestones: waitlist.milestones,
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("getWaitlistInfo error:", err);
+    res.status(500).json({
+      error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
+    });
   }
 }
 
@@ -163,7 +167,10 @@ async function join(req, res) {
     if (err.code === 11000) {
       return res.status(409).json({ error: "This email has already joined" });
     }
-    res.status(500).json({ error: err.message });
+    console.error("join waitlist error:", err);
+    res.status(500).json({
+      error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
+    });
   }
 }
 
@@ -203,7 +210,10 @@ async function checkPosition(req, res) {
       milestones: waitlist.milestones,
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("checkPosition error:", err);
+    res.status(500).json({
+      error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
+    });
   }
 }
 
@@ -251,11 +261,12 @@ async function getLeaderboard(req, res) {
 
     res.json({ leaderboard });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("getLeaderboard error:", err);
+    res.status(500).json({
+      error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
+    });
   }
 }
-
-const PageView = require("../models/PageView");
 
 // POST /api/w/:slug/visit (public) — Track unique page views with deduplication
 async function recordVisit(req, res) {
@@ -287,7 +298,10 @@ async function recordVisit(req, res) {
 
     res.json({ recorded: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("recordVisit error:", err);
+    res.status(500).json({
+      error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
+    });
   }
 }
 
@@ -313,7 +327,10 @@ async function getRecentActivity(req, res) {
 
     res.json({ activities });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("getRecentActivity error:", err);
+    res.status(500).json({
+      error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
+    });
   }
 }
 

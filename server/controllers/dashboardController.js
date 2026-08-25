@@ -98,7 +98,10 @@ async function getStats(req, res) {
       chartData,
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("Dashboard getStats error:", err);
+    res.status(500).json({
+      error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
+    });
   }
 }
 
@@ -143,7 +146,10 @@ async function exportCsv(req, res) {
 
     res.send(header + rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("Dashboard exportCsv error:", err);
+    res.status(500).json({
+      error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
+    });
   }
 }
 

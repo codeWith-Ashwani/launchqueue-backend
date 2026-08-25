@@ -2,6 +2,16 @@ const bcrypt = require("bcryptjs");
 const Founder = require("../models/Founder");
 const generateToken = require("../utils/generateToken");
 
+function getCookieOptions() {
+  const isProd = process.env.NODE_ENV === "production";
+  return {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: isProd ? "none" : "lax",
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+  };
+}
+
 // POST /api/auth/register
 async function register(req, res) {
   try {
@@ -24,12 +34,17 @@ async function register(req, res) {
 
     const token = generateToken(founder._id);
 
+    res.cookie("token", token, getCookieOptions());
+
     res.status(201).json({
       token,
       founder: { id: founder._id, email: founder.email, plan: founder.plan },
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("Register error:", err);
+    res.status(500).json({
+      error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
+    });
   }
 }
 
@@ -50,13 +65,29 @@ async function login(req, res) {
 
     const token = generateToken(founder._id);
 
+    res.cookie("token", token, getCookieOptions());
+
     res.json({
       token,
       founder: { id: founder._id, email: founder.email, plan: founder.plan },
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("Login error:", err);
+    res.status(500).json({
+      error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
+    });
   }
+}
+
+// POST /api/auth/logout
+async function logout(req, res) {
+  const isProd = process.env.NODE_ENV === "production";
+  res.clearCookie("token", {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: isProd ? "none" : "lax",
+  });
+  res.json({ message: "Logged out successfully" });
 }
 
 // GET /api/auth/me  (protected)
@@ -64,4 +95,4 @@ async function getMe(req, res) {
   res.json({ founder: req.founder });
 }
 
-module.exports = { register, login, getMe };
+module.exports = { register, login, logout, getMe };

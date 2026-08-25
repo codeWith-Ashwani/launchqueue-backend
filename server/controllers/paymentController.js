@@ -1,23 +1,28 @@
 const crypto = require("crypto");
 const Founder = require("../models/Founder");
 
-const VARIANT_TO_PLAN = {
-  [process.env.LEMONSQUEEZY_STARTER_VARIANT_ID]: "starter",
-  [process.env.LEMONSQUEEZY_PRO_VARIANT_ID]: "pro",
-  [process.env.LEMONSQUEEZY_AGENCY_VARIANT_ID]: "agency",
-};
+function getVariantToPlan() {
+  return {
+    [process.env.LEMONSQUEEZY_STARTER_VARIANT_ID]: "starter",
+    [process.env.LEMONSQUEEZY_PRO_VARIANT_ID]: "pro",
+    [process.env.LEMONSQUEEZY_AGENCY_VARIANT_ID]: "agency",
+  };
+}
 
-const PLAN_TO_VARIANT = {
-  starter: process.env.LEMONSQUEEZY_STARTER_VARIANT_ID,
-  pro: process.env.LEMONSQUEEZY_PRO_VARIANT_ID,
-  agency: process.env.LEMONSQUEEZY_AGENCY_VARIANT_ID,
-};
+function getPlanToVariant() {
+  return {
+    starter: process.env.LEMONSQUEEZY_STARTER_VARIANT_ID,
+    pro: process.env.LEMONSQUEEZY_PRO_VARIANT_ID,
+    agency: process.env.LEMONSQUEEZY_AGENCY_VARIANT_ID,
+  };
+}
 
 // POST /api/payments/checkout  (protected)
 async function createCheckout(req, res) {
   try {
     const { plan } = req.body;
-    const variantId = PLAN_TO_VARIANT[plan];
+    const planToVariant = getPlanToVariant();
+    const variantId = planToVariant[plan];
 
     if (!variantId) {
       return res.status(400).json({ error: "Invalid plan selected" });
@@ -55,7 +60,10 @@ async function createCheckout(req, res) {
 
     res.json({ checkoutUrl: data.data.attributes.url });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("CreateCheckout error:", err);
+    res.status(500).json({
+      error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
+    });
   }
 }
 
@@ -81,9 +89,10 @@ async function handleWebhook(req, res) {
     if (eventName === "subscription_created" || eventName === "subscription_updated") {
       const status = event.data.attributes.status; // "active", "cancelled", "expired", etc.
       const variantId = String(event.data.attributes.variant_id);
+      const variantToPlan = getVariantToPlan();
 
       if (status === "active") {
-        const plan = VARIANT_TO_PLAN[variantId] || "free";
+        const plan = variantToPlan[variantId] || "free";
         await Founder.findByIdAndUpdate(founderId, { plan });
       } else if (status === "cancelled" || status === "expired") {
         await Founder.findByIdAndUpdate(founderId, { plan: "free" });
@@ -93,7 +102,9 @@ async function handleWebhook(req, res) {
     res.status(200).json({ received: true });
   } catch (err) {
     console.error("Webhook error:", err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({
+      error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
+    });
   }
 }
 
