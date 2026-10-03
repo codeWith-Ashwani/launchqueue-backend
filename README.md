@@ -342,6 +342,8 @@ npm run lint
 
 ## Environment Configuration
 
+Redis infrastructure is optional: set backend-only `REDIS_URL` to a `redis://` or `rediss://` connection. `/health` reports liveness; `/ready` reports MongoDB readiness and Redis availability. See [Redis/Render deployment](docs/REDIS_DEPLOYMENT.md) for local tests and worker requirements.
+
 Create a `.env` file in the `server/` root directory:
 
 ```env
