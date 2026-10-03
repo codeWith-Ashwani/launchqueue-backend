@@ -55,7 +55,7 @@ async function getStats(req, res) {
     ]);
 
     const signups = await rankedSignups(waitlist._id, [{ $project: {
-      email: 1, referralCount: 1, currentPosition: 1, status: 1, createdAt: 1,
+      email: 1, referralCount: 1, currentPosition: 1, status: 1, invitationState: 1, createdAt: 1,
     } }]);
 
     // Signups grouped by day, last 30 days, for the chart

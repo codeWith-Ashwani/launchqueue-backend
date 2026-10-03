@@ -1,5 +1,8 @@
 function validateEnv() {
   require("../config/redis").validateRedisUrl(process.env.REDIS_URL);
+  if (process.env.EMAIL_DELIVERY_MODE && !["inline", "queue"].includes(process.env.EMAIL_DELIVERY_MODE)) {
+    throw new Error("EMAIL_DELIVERY_MODE must be inline or queue");
+  }
   const requiredVars = [
     "MONGO_URI",
     "JWT_SECRET",
