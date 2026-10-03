@@ -1,3 +1,5 @@
+const Founder = require("../models/Founder");
+const { limitsFor } = require("../services/entitlements");
 const { issueVerificationToken, verifyVerificationToken } = require("../utils/verificationToken");
 const verificationEmail = require("../templates/verificationEmail");
 const { issueSubscriberToken, verifySubscriberToken } = require("../utils/subscriberToken");
@@ -62,6 +64,10 @@ async function join(req, res) {
       if (waitlist.paused) throw Object.assign(new Error("This waitlist is not accepting new signups"), { status: 403 });
       const existing = await Signup.findOne({ waitlistId: waitlist._id, email }).session(session);
       if (existing) return { waitlist, signup: existing, alreadyJoined: true };
+      const owner = await Founder.findById(waitlist.founderId).session(session);
+      if (await Signup.countDocuments({ waitlistId: waitlist._id }).session(session) >= limitsFor(owner).signups) {
+        throw Object.assign(new Error("This waitlist has reached its signup capacity. Please contact the founder."), { status: 403 });
+      }
 
       // Bootstrap existing campaigns using their largest historical sequence.
       const latest = await Signup.findOne({ waitlistId: waitlist._id }).sort({ basePosition: -1 }).session(session);

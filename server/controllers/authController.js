@@ -1,3 +1,4 @@
+const { effectivePlan } = require("../services/entitlements");
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
@@ -54,7 +55,7 @@ async function register(req, res) {
         id: founder._id,
         name: founder.name,
         email: founder.email,
-        plan: founder.plan,
+        plan: effectivePlan(founder),
         customerPortalUrl: founder.customerPortalUrl,
       },
     });
@@ -97,7 +98,7 @@ async function login(req, res) {
         id: founder._id,
         name: founder.name,
         email: founder.email,
-        plan: founder.plan,
+        plan: effectivePlan(founder),
         customerPortalUrl: founder.customerPortalUrl,
       },
     });
@@ -161,7 +162,7 @@ async function googleLogin(req, res) {
         id: founder._id,
         name: founder.name,
         email: founder.email,
-        plan: founder.plan,
+        plan: effectivePlan(founder),
         customerPortalUrl: founder.customerPortalUrl,
       },
     });
@@ -202,7 +203,7 @@ async function getMe(req, res) {
       id: req.founder._id,
       name: req.founder.name,
       email: req.founder.email,
-      plan: req.founder.plan,
+      plan: effectivePlan(req.founder),
       customerPortalUrl: req.founder.customerPortalUrl,
     },
   });
@@ -236,7 +237,7 @@ async function updateProfile(req, res) {
         id: updatedFounder._id,
         name: updatedFounder.name,
         email: updatedFounder.email,
-        plan: updatedFounder.plan,
+        plan: effectivePlan(updatedFounder),
         customerPortalUrl: updatedFounder.customerPortalUrl,
       },
     });

@@ -28,7 +28,7 @@ describe("CSV Export Integration Tests", () => {
     founder1 = await Founder.create({
       email: "founder1@example.com",
       password: "password123",
-      plan: "free",
+      plan: "starter",
     });
     token1 = generateToken(founder1._id);
 

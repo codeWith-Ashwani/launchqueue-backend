@@ -1,3 +1,5 @@
+const Founder = require("../models/Founder");
+const { limitsFor, quotaError } = require("../services/entitlements");
 const mongoose = require("mongoose");
 const { rankedSignups } = require("../services/ranking");
 const Waitlist = require("../models/Waitlist");
@@ -24,28 +26,23 @@ async function create(req, res) {
       return res.status(400).json({ error: "Waitlist name is required" });
     }
 
-    // generate a slug from the name: "RocketPay" -> "rocketpay"
-    let baseSlug = name.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-    let slug = baseSlug;
-    let suffix = 1;
-
-    // if the slug is taken, append a number until it's unique
-    while (await Waitlist.findOne({ slug })) {
-      slug = `${baseSlug}-${suffix}`;
-      suffix++;
-    }
-
-    const waitlist = await Waitlist.create({
-      founderId: req.founder._id,
-      name,
-      slug,
-      description: description || "",
+    const waitlist = await mongoose.connection.transaction(async (session) => {
+      const owner = await Founder.findOneAndUpdate({ _id: req.founder._id }, { $inc: { usageVersion: 1 } }, { session, returnDocument: "after" });
+      const limits = limitsFor(owner);
+      if (await Waitlist.countDocuments({ founderId: owner._id }).session(session) >= limits.campaigns) {
+        throw quotaError("Your plan's campaign limit has been reached. Upgrade to create another waitlist.");
+      }
+      const baseSlug = name.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "waitlist";
+      let slug = baseSlug; let suffix = 1;
+      while (await Waitlist.findOne({ slug }).session(session)) slug = `${baseSlug}-${suffix++}`;
+      const [created] = await Waitlist.create([{ founderId: owner._id, name, slug, description: description || "" }], { session });
+      return created;
     });
-
     res.status(201).json({ waitlist });
   } catch (err) {
     console.error("Waitlist create error:", err);
     res.status(err.status || 500).json({
+      ...(err.upgradeRequired ? { upgradeRequired: true } : {}),
       error: err.status ? err.message : process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
     });
   }
@@ -68,6 +65,7 @@ async function list(req, res) {
   } catch (err) {
     console.error("Waitlist list error:", err);
     res.status(err.status || 500).json({
+      ...(err.upgradeRequired ? { upgradeRequired: true } : {}),
       error: err.status ? err.message : process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
     });
   }
@@ -84,6 +82,7 @@ async function getOne(req, res) {
   } catch (err) {
     console.error("Waitlist getOne error:", err);
     res.status(err.status || 500).json({
+      ...(err.upgradeRequired ? { upgradeRequired: true } : {}),
       error: err.status ? err.message : process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
     });
   }
@@ -115,6 +114,7 @@ async function update(req, res) {
   } catch (err) {
     console.error("Waitlist update error:", err);
     res.status(err.status || 500).json({
+      ...(err.upgradeRequired ? { upgradeRequired: true } : {}),
       error: err.status ? err.message : process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
     });
   }
@@ -132,6 +132,7 @@ async function exportSignups(req, res) {
       return res.status(404).json({ error: "Waitlist not found" });
     }
 
+    if (!limitsFor(req.founder).csv) return res.status(403).json({ error: "CSV export requires a paid plan", upgradeRequired: true });
     const signups = await rankedSignups(waitlist._id);
 
     const header = "email,currentPosition,referralCount,referredBy,joinedAt\n";
@@ -157,6 +158,7 @@ async function exportSignups(req, res) {
   } catch (err) {
     console.error("Waitlist exportSignups error:", err);
     res.status(err.status || 500).json({
+      ...(err.upgradeRequired ? { upgradeRequired: true } : {}),
       error: err.status ? err.message : process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
     });
   }
@@ -212,6 +214,7 @@ async function updateSignupPosition(req, res) {
   } catch (err) {
     console.error("Waitlist updateSignupPosition error:", err);
     res.status(err.status || 500).json({
+      ...(err.upgradeRequired ? { upgradeRequired: true } : {}),
       error: err.status ? err.message : process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
     });
   }
@@ -261,6 +264,7 @@ async function batchInvite(req, res) {
   } catch (err) {
     console.error("Waitlist batchInvite error:", err);
     res.status(err.status || 500).json({
+      ...(err.upgradeRequired ? { upgradeRequired: true } : {}),
       error: err.status ? err.message : process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
     });
   }
