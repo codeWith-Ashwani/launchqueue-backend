@@ -1,3 +1,4 @@
+const { once } = require("events");
 const Founder = require("../models/Founder");
 const { limitsFor, quotaError } = require("../services/entitlements");
 const mongoose = require("mongoose");
@@ -10,7 +11,8 @@ const invitedEmail = require("../templates/invitedEmail");
 
 function escapeCsvField(val) {
   if (val === null || val === undefined) return "";
-  const str = String(val);
+  const raw = String(val);
+  const str = /^[\s]*[=+@-]/.test(raw) ? "'" + raw : raw;
   if (str.includes(",") || str.includes('"') || str.includes("\n") || str.includes("\r")) {
     return `"${str.replace(/"/g, '""')}"`;
   }
@@ -53,14 +55,10 @@ async function list(req, res) {
   try {
     const waitlists = await Waitlist.find({ founderId: req.founder._id }).sort({ createdAt: -1 });
 
-    // attach a signup count to each one
-    const withCounts = await Promise.all(
-      waitlists.map(async (w) => {
-        const count = await Signup.countDocuments({ waitlistId: w._id });
-        return { ...w.toObject(), signupCount: count };
-      })
-    );
-
+    const counts = await Signup.aggregate([{ $match: { waitlistId: { $in: waitlists.map((w) => w._id) } } },
+      { $group: { _id: "$waitlistId", count: { $sum: 1 } } }]);
+    const countMap = new Map(counts.map((entry) => [entry._id.toString(), entry.count]));
+    const withCounts = waitlists.map((w) => ({ ...w.toObject(), signupCount: countMap.get(w._id.toString()) || 0 }));
     res.json({ waitlists: withCounts });
   } catch (err) {
     console.error("Waitlist list error:", err);
@@ -133,29 +131,24 @@ async function exportSignups(req, res) {
     }
 
     if (!limitsFor(req.founder).csv) return res.status(403).json({ error: "CSV export requires a paid plan", upgradeRequired: true });
-    const signups = await rankedSignups(waitlist._id);
-
-    const header = "email,currentPosition,referralCount,referredBy,joinedAt\n";
-
-    const rows = signups
-      .map((s) => {
-        const email = escapeCsvField(s.email);
-        const currentPosition = escapeCsvField(s.currentPosition);
-        const referralCount = escapeCsvField(s.referralCount ?? 0);
-        const referredBy = escapeCsvField(s.referredBy ?? "");
-        const joinedAt = escapeCsvField(s.createdAt ? s.createdAt.toISOString() : "");
-        return `${email},${currentPosition},${referralCount},${referredBy},${joinedAt}`;
-      })
-      .join("\n");
-
-    res.setHeader("Content-Type", "text/csv");
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="${waitlist.slug || "waitlist"}-signups.csv"`
-    );
-
-    res.status(200).send(header + (rows.length > 0 ? rows + "\n" : ""));
+    const cursor = rankedSignups(waitlist._id).cursor({ batchSize: 100 });
+    const cancellation = new AbortController();
+    const closed = () => { cancellation.abort(); };
+    res.once("close", closed);
+    try {
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", `attachment; filename="${waitlist.slug}-signups.csv"`);
+      res.write("email,currentPosition,referralCount,referredBy,joinedAt\n");
+      for await (const signup of cursor) {
+        if (res.destroyed) break;
+        const row = [signup.email, signup.currentPosition, signup.referralCount || 0, signup.referredBy,
+          signup.createdAt?.toISOString()].map(escapeCsvField).join(",") + "\n";
+        if (!res.write(row)) await once(res, "drain", { signal: cancellation.signal });
+      }
+      if (!res.destroyed) res.end();
+    } finally { res.removeListener("close", closed); await cursor.close(); }
   } catch (err) {
+    if (res.headersSent) { if (!res.destroyed) res.destroy(); return; }
     console.error("Waitlist exportSignups error:", err);
     res.status(err.status || 500).json({
       ...(err.upgradeRequired ? { upgradeRequired: true } : {}),

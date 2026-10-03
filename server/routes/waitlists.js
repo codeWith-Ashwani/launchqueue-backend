@@ -28,8 +28,8 @@ router.use(authMiddleware); // every route below requires a valid founder
 router.post("/", validate(createWaitlistSchema), create);
 router.get("/", list);
 router.get("/:id", getOne);
-router.get("/:id/stats", getStats);
-router.get("/:id/funnel", getFunnelStats);
+router.get("/:id/stats", require("../middleware/validateQuery")(require("../validators/schemas").paginationSchema), getStats);
+router.get("/:id/funnel", require("../middleware/validateQuery")(require("../validators/schemas").funnelQuerySchema), getFunnelStats);
 router.get("/:id/export", exportSignups);
 router.patch("/:id", validate(updateWaitlistSchema), update);
 router.patch("/:id/signups/:signupId/position", validate(updatePositionSchema), updateSignupPosition);

@@ -9,7 +9,7 @@ function rankPipeline(waitlistId) {
       { $ifNull: ["$priorityOffset", 0] },
     ] } } },
     { $set: { queueOrder: { score: "$queueScore", sequence: "$basePosition", id: "$_id" } } },
-    { $set: { queueEligible: { $ne: ["$verificationState", "pending"] } } },
+    { $set: { queueEligible: { $ne: [{ $ifNull: ["$verificationState", "legacy"] }, "pending"] } } },
     { $setWindowFields: {
       partitionBy: "$queueEligible",
       sortBy: { queueOrder: 1 },
@@ -21,7 +21,7 @@ function rankPipeline(waitlistId) {
 }
 
 function rankedSignups(waitlistId, stages = [], session = null) {
-  const query = Signup.aggregate([...rankPipeline(waitlistId), ...stages]);
+  const query = Signup.aggregate([...rankPipeline(waitlistId), ...stages]).allowDiskUse(true);
   return session ? query.session(session) : query;
 }
 
@@ -40,4 +40,4 @@ async function signupState(signup, waitlist, alreadyJoined = false) {
   };
 }
 
-module.exports = { rankedSignups, signupState };
+module.exports = { rankPipeline, rankedSignups, signupState };

@@ -51,5 +51,7 @@ const signupSchema = new mongoose.Schema(
 // One email can only join a given waitlist once
 signupSchema.index({ waitlistId: 1, email: 1 }, { unique: true });
 signupSchema.index({ waitlistId: 1, basePosition: -1 });
+signupSchema.index({ waitlistId: 1, createdAt: -1 });
+signupSchema.index({ waitlistId: 1, referredBy: 1, createdAt: -1 });
 
 module.exports = mongoose.model("Signup", signupSchema);
