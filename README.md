@@ -177,7 +177,7 @@ Represents lightweight unique traffic events for conversion analytics.
 ## Authentication & Security
 
 ### Token Architecture
-- **JWT Signing**: Signs payload `{ id: founder._id }` using `JWT_SECRET` with a 30-day expiry (the cookie lasts 7 days).
+- **JWT Signing**: Signs payload `{ id: founder._id, sessionVersion }` using `JWT_SECRET` with a 7-day expiry. Tokens include a session version checked against the founder record. Password changes, password resets, and authenticated logout revoke prior sessions. A password change refreshes the initiating browser cookie.
 - **Dual Delivery**: Delivered via `httpOnly` cookie (`token`) and returned in the JSON response body.
 - **Cookie Security Options**:
   ```javascript
@@ -321,7 +321,7 @@ npm test
 npm run lint
 ```
 
-### Test Suites (22 suites, 96 tests verified in Build 6)
+### Test Suites (24 suites, 104 tests verified in Build 7)
 - `adminControls.test.js`: Position override validation, unowned resource 404 guards, batch invite execution.
 - `auth.test.js`: Registration, login, duplicate email rejection, session verification.
 - `calculatePosition.test.js`: Unit tests for mathematical referral queue promotion formula.
@@ -425,4 +425,12 @@ For the worker, set root directory `server`, build command `npm ci`, and start c
 - Queue delivery requires a running worker; API requests can safely persist notifications during Redis outages, but delivery waits for recovery.
 - SMTP receipt means the provider accepted the message, not that it reached the subscriber's inbox.
 - Referral ranks use aggregation across the campaign; pagination and larger-volume performance work are planned.
-- Billing entitlements and shared request protection are planned in later builds.
+- Billing lifecycle and entitlement enforcement are planned in later builds.
+
+## Shared Request Protection
+
+When `REDIS_URL` is configured, authentication, signup, recovery, verification, status, and visitor tracking use Redis counters shared by every API instance. Atomic increment plus expiry prevents lost counter updates; IP identities are HMAC-hashed before storage. Limits have separate budgets so joining does not consume verification capacity. Redis outages return 503 on protected requests instead of allowing unbounded attempts. Without Redis, limits are local to one process.
+
+`TRUST_PROXY_HOPS` defaults to 0. Set an explicit hop count only after checking the actual Render proxy path; never use unrestricted proxy trust. See [Express proxy guidance](https://expressjs.com/en/guide/behind-proxies/).
+
+Unsafe requests to founder APIs reject untrusted browser origins. Cookie-based mutations also require `X-LaunchQueue-Request: 1`; the frontend Axios client adds this header. API clients using bearer tokens can continue without this browser header. The provider-signed billing webhook is exempt. Request bodies, strings, batch sizes, resource IDs, and bcrypt password byte lengths are bounded. Reset-token consumption is atomic under concurrent submissions.

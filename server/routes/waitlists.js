@@ -19,6 +19,10 @@ const {
   batchInviteSchema,
 } = require("../validators/schemas");
 
+for (const name of ["id", "signupId"]) router.param(name, (req, res, next, value) => {
+  if (!/^[a-fA-F0-9]{24}$/.test(value)) return res.status(400).json({ error: "Invalid resource ID" });
+  next();
+});
 router.use(authMiddleware); // every route below requires a valid founder
 
 router.post("/", validate(createWaitlistSchema), create);
