@@ -190,7 +190,7 @@ Represents lightweight unique traffic events for conversion analytics.
   ```
 
 ### Password Reset Flow (Security-Hardened)
-- Never stores plaintext or reversible reset tokens in the database.
+- Stores the reset token hash on the founder. Email outbox payloads containing reset links are encrypted with AES-256-GCM.
 - A cryptographically random 32-byte token (`crypto.randomBytes(32).toString("hex")`) is generated.
 - The SHA-256 hash of this token is stored in `resetPasswordTokenHash` alongside a 1-hour expiration date.
 - The reset email link contains the unhashed raw token (`/reset-password?token=...`).
@@ -212,22 +212,18 @@ Represents lightweight unique traffic events for conversion analytics.
 
 ## Core Referral Engine Logic
 
-Build 2 replaces displayed score values with contiguous ranks derived by `server/services/ranking.js`. Queue priority is `basePosition - referralCount * 5 + priorityOffset`, ordered by score, original sequence, then document ID. Signup sequence allocation and referral attribution commit in one transaction; retries cannot award the same signup twice. The legacy formula below remains only for compatibility with the stored `currentPosition` field. Manual position edits reorder neighbours through priority offsets. MongoDB 5+ running as a replica set is required. See [build progress and deployment prerequisites](docs/BUILD_PROGRESS.md).
+Build 2 replaces displayed score values with contiguous ranks derived by `server/services/ranking.js`. Queue priority is `basePosition - referralCount * 5 + priorityOffset`, ordered by score, original sequence, then document ID. Signup sequence allocation and referral attribution commit in one transaction; retries cannot award the same signup twice. The legacy formula below remains only for compatibility with the stored `currentPosition` field. Manual position edits reorder neighbours through priority offsets. MongoDB 5+ running as a replica set is required. Detailed build notes stay in local, gitignored docs/.
 
 The queue calculation is isolated in `server/utils/calculatePosition.js`:
 
 $$\text{Current Position} = \max\left(1, \text{Base Position} - (\text{Referral Count} \times 5)\right)$$
 
 ### Join & Attribution Lifecycle
-1. **Deduplication Check**: Queries `{ waitlistId, email }`. If already present, returns the existing record (`alreadyJoined: true`) without awarding duplicate referral credit.
-2. **Disposable Domain Check**: Queries `isDisposableEmail(email)` against a blacklist of ~3,000 temporary mail providers.
-3. **Self-Referral Guard**: If `referredBy === subscriber.refCode`, referral attribution is rejected.
-4. **Base Rank Allocation**: Calculates `basePosition = totalSignups + 1`.
-5. **Referrer Promotion**:
-   - Increments referrer's `referralCount` by 1.
-   - Recalculates referrer's `currentPosition` using `calculatePosition(basePosition, referralCount)`.
-   - Sends an asynchronous rank-up notification email (`rankUpEmail.js`).
-6. **Welcome Email**: Sends confirmation email with queue position and unique invite link (`confirmationEmail.js`).
+1. Reject disposable email domains and paused campaigns.
+2. Allocate a monotonic sequence, create the subscriber, and attribute the referral in one MongoDB transaction. Duplicate joins request a private status link instead of exposing subscriber details.
+3. Derive contiguous ranks by score, sequence, and document ID.
+4. Store confirmation and referral emails in the same transaction as the business change. A rollback also removes the notification.
+5. Read private subscriber status through a signed, campaign-scoped token. Status-link recovery responds generically for known and unknown email addresses.
 
 ---
 
@@ -289,7 +285,9 @@ Transactional emails are dispatched using **Nodemailer** with modular HTML templ
 - `invitedEmail.js`: Sent when an admin issues a batch invite, including the founder's custom `thankYouMessage`.
 - `passwordResetEmail.js`: Sent on password reset requests with a secure reset link.
 
-Tests that exercise email flows mock delivery. Runtime delivery uses Nodemailer; failures are logged without retries.
+Email intentions are stored in a MongoDB outbox with encrypted payloads. `EMAIL_DELIVERY_MODE=queue` keeps SMTP work outside API requests; a persistent BullMQ worker dispatches pending intentions to Redis and retries transient failures up to five times with exponential backoff. Outbox records rebuild lost Redis jobs. An invitation becomes `invited` only after a successful delivery receipt; queued and failed states appear in the dashboard, and founders can retry failed invitations.
+
+Inline mode preserves local development compatibility and records delivery failures. Delivery is **at least once**: a process crash after SMTP accepts the email but before the MongoDB receipt can cause a duplicate. A stable Message-ID helps providers correlate retries but does not guarantee deduplication. Tests mock SMTP and exercise queue processing against a real Redis instance when `TEST_REDIS_URL` is set.
 
 ---
 
@@ -322,7 +320,7 @@ npm test
 npm run lint
 ```
 
-### Test Suites (14 suites, 68 tests verified in Build 1)
+### Test Suites (21 suites, 92 tests verified in Build 5)
 - `adminControls.test.js`: Position override validation, unowned resource 404 guards, batch invite execution.
 - `auth.test.js`: Registration, login, duplicate email rejection, session verification.
 - `calculatePosition.test.js`: Unit tests for mathematical referral queue promotion formula.
@@ -342,7 +340,7 @@ npm run lint
 
 ## Environment Configuration
 
-Redis infrastructure is optional: set backend-only `REDIS_URL` to a `redis://` or `rediss://` connection. `/health` reports liveness; `/ready` reports MongoDB readiness and Redis availability. See [Redis/Render deployment](docs/REDIS_DEPLOYMENT.md) for local tests and worker requirements.
+Redis infrastructure is optional: set backend-only `REDIS_URL` to a `redis://` or `rediss://` connection. `/health` reports liveness; `/ready` reports MongoDB readiness and Redis availability. Detailed deployment and build notes stay in the local, gitignored `docs/` directory.
 
 Create a `.env` file in the `server/` root directory:
 
@@ -383,18 +381,19 @@ LEMONSQUEEZY_AGENCY_VARIANT_ID=variant_agency
 
 ### Prerequisites
 - Node.js 22 >= 22.13.0 (see `.nvmrc`)
-- MongoDB instance (local or MongoDB Atlas)
+- MongoDB 5+ replica set (MongoDB Atlas supports transactions)
+- Redis with `maxmemory-policy=noeviction` for queue mode
 
 ### Setup
 ```bash
 # 1. Navigate to backend directory
-cd server # or root of backend repo
+cd server
 
 # 2. Install dependencies
 npm install
 
 # 3. Configure environment file
-cp .env.example .env
+cp ../.env.example .env
 
 # 4. Start server in development mode (using nodemon)
 npm run dev
@@ -414,8 +413,15 @@ Both frontend and backend include automated GitHub Actions workflows (`.github/w
 
 ---
 
+## Render Email Worker Setup
+
+Keep the frontend on Vercel. The Render API and a separate persistent background worker use the same MongoDB replica set and Render Key Value instance. Set `EMAIL_DELIVERY_MODE=queue` on the API. Both processes need `MONGO_URI`, `REDIS_URL`, `JWT_SECRET`, `EMAIL_ENCRYPTION_KEY`, `CLIENT_URL`, and SMTP configuration. Use a stable encryption key; changing it makes existing outbox payloads unreadable.
+
+For the worker, set root directory `server`, build command `npm ci`, and start command `npm run worker`. Use the Redis internal URL and `noeviction` policy. Deploy and confirm the worker is connected before switching the API to queue mode. Provisioning these Render services is a separate deployment step and may require a paid plan.
+
 ## Known Limitations
 
-1. **Email Queueing**: Transactional emails are dispatched inline during request execution using `Promise.allSettled`. For high-volume production deployments, offloading email delivery to a persistent message queue (e.g., BullMQ with Redis) would improve latency and retry resilience.
-2. **Referral Position Reindexing**: While the current position formula computes dynamically per user ($\mathcal{O}(1)$), bulk global reindexing of all subsequent waitlist entries on each join is not performed to avoid quadratic write locks on large collections.
-3. **Database Transactions**: Mongoose operations currently run as single-document operations. Full ACID multi-document transactions would provide stricter guarantees during high-concurrency referral spikes on replica set clusters.
+- Queue delivery requires a running worker; API requests can safely persist notifications during Redis outages, but delivery waits for recovery.
+- SMTP receipt means the provider accepted the message, not that it reached the subscriber's inbox.
+- Referral ranks use aggregation across the campaign; pagination and larger-volume performance work are planned.
+- Billing entitlements and subscriber verification are planned in later builds.

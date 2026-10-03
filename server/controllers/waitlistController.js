@@ -2,7 +2,8 @@ const mongoose = require("mongoose");
 const { rankedSignups } = require("../services/ranking");
 const Waitlist = require("../models/Waitlist");
 const Signup = require("../models/Signup");
-const sendEmail = require("../utils/sendEmail");
+const { recordEmail, dispatchInline } = require("../services/emailOutbox");
+const EmailOutbox = require("../models/EmailOutbox");
 const invitedEmail = require("../templates/invitedEmail");
 
 function escapeCsvField(val) {
@@ -229,41 +230,32 @@ async function batchInvite(req, res) {
       return res.status(404).json({ error: "Waitlist not found" });
     }
 
-    // Filter to only signups that belong to this specific waitlist
-    const validSignups = await Signup.find({
-      _id: { $in: signupIds },
-      waitlistId: waitlist._id,
+    const emails = await mongoose.connection.transaction(async (session) => {
+      await Waitlist.updateOne({ _id: waitlist._id }, { $inc: { queueVersion: 1 } }, { session });
+      const selected = await Signup.find({ _id: { $in: signupIds }, waitlistId: waitlist._id, status: { $ne: "invited" } }).session(session);
+      const queued = [];
+      for (const signup of selected) {
+        let email = await EmailOutbox.findOne({ dedupeKey: `invitation-${signup._id}` }).session(session);
+        if (email && !["failed"].includes(email.state)) continue;
+        if (email) {
+          email = await EmailOutbox.findByIdAndUpdate(email._id, { $inc: { generation: 1 }, $set: {
+            state: "pending", nextDispatchAt: new Date(), leaseUntil: null, lastError: null,
+          } }, { session, returnDocument: "after" });
+        } else {
+          email = await recordEmail({ dedupeKey: `invitation-${signup._id}`, kind: "invitation", waitlistId: waitlist._id, signupId: signup._id,
+            to: signup.email, subject: `You're invited to ${waitlist.name}!`,
+            html: invitedEmail({ waitlistName: waitlist.name, thankYouMessage: waitlist.thankYouMessage }) }, session);
+        }
+        await Signup.updateOne({ _id: signup._id }, { $set: { invitationState: "queued" } }, { session });
+        queued.push(email);
+      }
+      return queued;
     });
+    await dispatchInline(emails);
+    const deliveredCount = await EmailOutbox.countDocuments({ _id: { $in: emails.map((e) => e._id) }, state: "sent" });
+    const failedCount = await EmailOutbox.countDocuments({ _id: { $in: emails.map((e) => e._id) }, state: "failed" });
+    res.json({ invitedCount: deliveredCount, queuedCount: emails.length - deliveredCount - failedCount, failedCount });
 
-    if (validSignups.length === 0) {
-      return res.json({ invitedCount: 0 });
-    }
-
-    const validIds = validSignups.map((s) => s._id);
-
-    await Signup.updateMany(
-      { _id: { $in: validIds } },
-      { $set: { status: "invited" } }
-    );
-
-    // Send invitations concurrently via Promise.allSettled so individual email failures
-    // do not block or abort the rest of the batch.
-    // Note: For very high-volume production lists, a persistent background job queue (e.g., BullMQ)
-    // would be the appropriate architectural upgrade.
-    const emailPromises = validSignups.map((signup) =>
-      sendEmail({
-        to: signup.email,
-        subject: `You're invited to ${waitlist.name}!`,
-        html: invitedEmail({
-          waitlistName: waitlist.name,
-          thankYouMessage: waitlist.thankYouMessage,
-        }),
-      })
-    );
-
-    await Promise.allSettled(emailPromises);
-
-    res.json({ invitedCount: validSignups.length });
   } catch (err) {
     console.error("Waitlist batchInvite error:", err);
     res.status(err.status || 500).json({

@@ -3,7 +3,8 @@ const bcrypt = require("bcryptjs");
 const { OAuth2Client } = require("google-auth-library");
 const Founder = require("../models/Founder");
 const generateToken = require("../utils/generateToken");
-const sendEmail = require("../utils/sendEmail");
+const mongoose = require("mongoose");
+const { recordEmail, dispatchInline } = require("../services/emailOutbox");
 const passwordResetEmail = require("../templates/passwordResetEmail");
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -289,18 +290,16 @@ async function requestPasswordReset(req, res) {
     const rawToken = crypto.randomBytes(32).toString("hex");
     const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
 
-    founder.resetPasswordTokenHash = tokenHash;
-    founder.resetPasswordExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
-    await founder.save();
-
-    const clientUrl = process.env.CLIENT_URL || "http://localhost:5173";
-    const resetUrl = `${clientUrl}/reset-password?token=${rawToken}`;
-
-    await sendEmail({
-      to: founder.email,
-      subject: "Reset your LaunchQueue password",
-      html: passwordResetEmail({ resetUrl }),
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+    const resetUrl = `${process.env.CLIENT_URL}/reset-password?token=${rawToken}`;
+    const emailJob = await mongoose.connection.transaction(async (session) => {
+      await Founder.updateOne({ _id: founder._id }, { $set: {
+        resetPasswordTokenHash: tokenHash, resetPasswordExpires: expiresAt,
+      } }, { session });
+      return recordEmail({ dedupeKey: `reset-${founder._id}-${tokenHash}`, kind: "password-reset", expiresAt,
+        to: founder.email, subject: "Reset your LaunchQueue password", html: passwordResetEmail({ resetUrl }) }, session);
     });
+    await dispatchInline([emailJob]);
 
     res.status(200).json(genericResponse);
   } catch (err) {

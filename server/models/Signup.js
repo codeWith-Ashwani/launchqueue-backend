@@ -35,6 +35,7 @@ const signupSchema = new mongoose.Schema(
       type: Number,
       required: true,
     },
+    invitationState: { type: String, enum: ["none", "queued", "sent", "failed"], default: "none" },
     status: {
       type: String,
       enum: ["waiting", "invited"],

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "nodemon index.js",
     "start": "node index.js",
+    "worker": "node workers/emailWorker.js",
     "lint": "eslint .",
     "test": "jest --runInBand --forceExit"
   },

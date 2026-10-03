@@ -7,7 +7,7 @@ const Signup = require("../models/Signup");
 const PageView = require("../models/PageView");
 const generateRefCode = require("../utils/generateRefCode");
 const calculatePosition = require("../utils/calculatePosition");
-const sendEmail = require("../utils/sendEmail");
+const { recordEmail, dispatchInline } = require("../services/emailOutbox");
 const confirmationEmail = require("../templates/confirmationEmail");
 const rankUpEmail = require("../templates/rankUpEmail");
 const isDisposableEmail = require("../utils/disposableEmailCheck");
@@ -81,24 +81,26 @@ async function join(req, res) {
         referrer.currentPosition = calculatePosition(referrer.basePosition, referrer.referralCount);
         await referrer.save({ session });
       }
-      return { waitlist, signup, referrer, alreadyJoined: false };
+      const emails = [];
+      const shareUrl = `${process.env.CLIENT_URL}/w/${waitlist.slug}?ref=${signup.refCode}`;
+      emails.push(await recordEmail({ dedupeKey: `confirmation-${signup._id}`, kind: "confirmation", waitlistId: waitlist._id, signupId: signup._id,
+        to: signup.email, subject: `You joined the ${waitlist.name} waitlist`,
+        html: confirmationEmail({ waitlistName: waitlist.name, position: signup.basePosition, shareUrl }) }, session));
+      if (referrer) {
+        const [ranked] = await rankedSignups(waitlist._id, [{ $match: { _id: referrer._id } }], session);
+        emails.push(await recordEmail({ dedupeKey: `referral-${signup._id}`, kind: "referral", waitlistId: waitlist._id, signupId: referrer._id,
+          to: referrer.email, subject: `Your ${waitlist.name} referral was credited`,
+          html: rankUpEmail({ waitlistName: waitlist.name, oldPosition: referrer.basePosition, newPosition: ranked.currentPosition,
+            shareUrl: `${process.env.CLIENT_URL}/w/${waitlist.slug}?ref=${referrer.refCode}` }) }, session));
+      }
+      return { waitlist, signup, referrer, emails, alreadyJoined: false };
     });
     if (result.alreadyJoined) {
       await emailStatusLink(result.signup, result.waitlist);
       return res.status(202).json({ statusLinkSent: true, alreadyJoined: true, message: STATUS_MESSAGE });
     }
     const data = { ...await signupState(result.signup, result.waitlist), statusToken: issueSubscriberToken(result.signup) };
-    if (!result.alreadyJoined) {
-      const shareUrl = `${process.env.CLIENT_URL}/w/${result.waitlist.slug}?ref=${result.signup.refCode}`;
-      void sendEmail({ to: result.signup.email, subject: `You're #${data.position} on the ${result.waitlist.name} waitlist`,
-        html: confirmationEmail({ waitlistName: result.waitlist.name, position: data.position, shareUrl }) });
-      if (result.referrer) {
-        const state = await signupState(result.referrer, result.waitlist);
-        void sendEmail({ to: result.referrer.email, subject: `Your ${result.waitlist.name} referral was credited`,
-          html: rankUpEmail({ waitlistName: result.waitlist.name, oldPosition: result.referrer.basePosition,
-            newPosition: state.position, shareUrl: `${process.env.CLIENT_URL}/w/${result.waitlist.slug}?ref=${result.referrer.refCode}` }) });
-      }
-    }
+    await dispatchInline(result.emails || []);
     return res.status(result.alreadyJoined ? 200 : 201).json(data);
   } catch (err) {
     if (err.code === 11000) {
@@ -120,7 +122,9 @@ const STATUS_MESSAGE = "If this email is on the waitlist, a private status link 
 
 async function emailStatusLink(signup, waitlist) {
   const statusUrl = `${process.env.CLIENT_URL}/w/${waitlist.slug}#status=${issueSubscriberToken(signup)}`;
-  await sendEmail({ to: signup.email, subject: "Your private LaunchQueue status link", html: statusEmail({ statusUrl }) });
+  const email = await recordEmail({ dedupeKey: `status-${signup._id}-${Math.floor(Date.now() / 300000)}`, kind: "status", waitlistId: waitlist._id,
+    signupId: signup._id, to: signup.email, subject: "Your private LaunchQueue status link", html: statusEmail({ statusUrl }), expiresAt: new Date(Date.now() + 7 * 86400000) });
+  await dispatchInline([email]);
 }
 
 async function requestStatusLink(req, res) {
