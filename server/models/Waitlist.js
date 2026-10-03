@@ -27,6 +27,8 @@ const waitlistSchema = new mongoose.Schema(
       type: String,
       default: "Thanks for joining! Share your link to move up the list.",
     },
+    signupSequence: { type: Number, default: 0 },
+    queueVersion: { type: Number, default: 0 },
     paused: {
       type: Boolean,
       default: false,
