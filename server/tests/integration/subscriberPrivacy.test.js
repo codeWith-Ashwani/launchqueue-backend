@@ -1,3 +1,4 @@
+const verifySignup = require("../verifySignup");
 const request = require("supertest");
 const app = require("../../index");
 const Founder = require("../../models/Founder");
@@ -17,7 +18,8 @@ describe("Private subscriber status", () => {
     jest.clearAllMocks();
     const owner = await Founder.create({ email: "owner@example.com" });
     await Waitlist.create({ founderId: owner._id, name: "Private", slug: "private" });
-    signup = (await request(app).post("/api/w/private/signup").send({ email: "subscriber@example.com" })).body;
+    await request(app).post("/api/w/private/signup").send({ email: "subscriber@example.com" });
+    signup = (await verifySignup(app, "private", "subscriber@example.com")).body;
   });
 
   it("rejects public referral codes and email lookups", async () => {

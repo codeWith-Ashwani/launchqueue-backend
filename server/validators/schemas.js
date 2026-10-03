@@ -107,6 +107,7 @@ const signupJoinSchema = z.object({
     .email("Please enter a valid email address"),
   ref: z.string().trim().optional(),
 });
+const verificationSchema = z.object({ token: z.string().min(1).max(2048) });
 
 const updatePositionSchema = z.object({
   currentPosition: z
@@ -131,6 +132,7 @@ module.exports = {
   createWaitlistSchema,
   updateWaitlistSchema,
   signupJoinSchema,
+  verificationSchema,
   updatePositionSchema,
   batchInviteSchema,
 };

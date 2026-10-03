@@ -1,3 +1,5 @@
+const { issueVerificationToken, verifyVerificationToken } = require("../utils/verificationToken");
+const verificationEmail = require("../templates/verificationEmail");
 const { issueSubscriberToken, verifySubscriberToken } = require("../utils/subscriberToken");
 const statusEmail = require("../templates/statusEmail");
 const mongoose = require("mongoose");
@@ -22,7 +24,7 @@ async function getWaitlistInfo(req, res) {
     }
 
     const totalSignups = await Signup.countDocuments({
-      waitlistId: waitlist._id,
+      waitlistId: waitlist._id, verificationState: { $ne: "pending" },
     });
 
     res.json({
@@ -68,47 +70,25 @@ async function join(req, res) {
         { _id: waitlist._id }, { $inc: { signupSequence: 1 } }, { session, returnDocument: "after" }
       );
       let referrer = ref ? await Signup.findOne({ waitlistId: waitlist._id, refCode: ref }).session(session) : null;
-      if (referrer?.email === email) referrer = null;
+      if (referrer?.email === email || referrer?.verificationState === "pending") referrer = null;
       const [signup] = await Signup.create([{
         waitlistId: waitlist._id, email, refCode: generateRefCode(),
         referredBy: referrer?.refCode || null,
-        basePosition: allocated.signupSequence, currentPosition: allocated.signupSequence,
+        basePosition: allocated.signupSequence, currentPosition: allocated.signupSequence, verificationState: "pending",
       }], { session });
-      if (referrer) {
-        await Signup.updateOne({ _id: referrer._id }, { $inc: { referralCount: 1 } }, { session });
-        referrer = await Signup.findById(referrer._id).session(session);
-        // Retain the legacy score field for old clients; all new reads derive rank.
-        referrer.currentPosition = calculatePosition(referrer.basePosition, referrer.referralCount);
-        await referrer.save({ session });
-      }
-      const emails = [];
-      const shareUrl = `${process.env.CLIENT_URL}/w/${waitlist.slug}?ref=${signup.refCode}`;
-      emails.push(await recordEmail({ dedupeKey: `confirmation-${signup._id}`, kind: "confirmation", waitlistId: waitlist._id, signupId: signup._id,
-        to: signup.email, subject: `You joined the ${waitlist.name} waitlist`,
-        html: confirmationEmail({ waitlistName: waitlist.name, position: signup.basePosition, shareUrl }) }, session));
-      if (referrer) {
-        const [ranked] = await rankedSignups(waitlist._id, [{ $match: { _id: referrer._id } }], session);
-        emails.push(await recordEmail({ dedupeKey: `referral-${signup._id}`, kind: "referral", waitlistId: waitlist._id, signupId: referrer._id,
-          to: referrer.email, subject: `Your ${waitlist.name} referral was credited`,
-          html: rankUpEmail({ waitlistName: waitlist.name, oldPosition: referrer.basePosition, newPosition: ranked.currentPosition,
-            shareUrl: `${process.env.CLIENT_URL}/w/${waitlist.slug}?ref=${referrer.refCode}` }) }, session));
-      }
-      return { waitlist, signup, referrer, emails, alreadyJoined: false };
+      const emailJob = await verificationNotification(signup, waitlist, session);
+      return { waitlist, signup, emails: [emailJob], alreadyJoined: false };
     });
-    if (result.alreadyJoined) {
-      await emailStatusLink(result.signup, result.waitlist);
-      return res.status(202).json({ statusLinkSent: true, alreadyJoined: true, message: STATUS_MESSAGE });
-    }
-    const data = { ...await signupState(result.signup, result.waitlist), statusToken: issueSubscriberToken(result.signup) };
-    await dispatchInline(result.emails || []);
-    return res.status(result.alreadyJoined ? 200 : 201).json(data);
+    if (result.alreadyJoined) await emailStatusLink(result.signup, result.waitlist);
+    else await dispatchInline(result.emails);
+    return res.status(202).json({ statusLinkSent: true, message: STATUS_MESSAGE });
   } catch (err) {
     if (err.code === 11000) {
       const waitlist = await Waitlist.findOne({ slug: req.params.slug });
       const existing = waitlist && await Signup.findOne({ waitlistId: waitlist._id, email: req.body.email });
       if (existing) {
         await emailStatusLink(existing, waitlist);
-        return res.status(202).json({ statusLinkSent: true, alreadyJoined: true, message: STATUS_MESSAGE });
+        return res.status(202).json({ statusLinkSent: true, message: STATUS_MESSAGE });
       }
       return res.status(409).json({ error: "Please retry your signup" });
     }
@@ -117,10 +97,67 @@ async function join(req, res) {
   }
 }
 
-// GET /api/w/:slug/position?ref=xxxx or ?email=xxxx  (public) — look up current position
-const STATUS_MESSAGE = "If this email is on the waitlist, a private status link will be sent.";
+// Subscriber recovery is generic; private signed links prove email ownership.
+const STATUS_MESSAGE = "Check your inbox for a private verification or status link. If eligible, a link will be sent.";
+
+async function verificationNotification(signup, waitlist, session = null) {
+  return recordEmail({ dedupeKey: `verification-${signup._id}-${Math.floor(Date.now() / 300000)}`, kind: "verification",
+    waitlistId: waitlist._id, signupId: signup._id, to: signup.email, subject: "Verify your LaunchQueue email",
+    html: verificationEmail({ verificationUrl: `${process.env.CLIENT_URL}/w/${waitlist.slug}#verify=${issueVerificationToken(signup)}` }),
+    expiresAt: new Date(Date.now() + 86400000) }, session);
+}
+
+async function verifyEmail(req, res) {
+  let identity;
+  try { identity = verifyVerificationToken(req.body.token); }
+  catch { return res.status(401).json({ error: "Verification link is invalid or expired. Request a new link." }); }
+  try {
+    const result = await mongoose.connection.transaction(async (session) => {
+      const waitlist = await Waitlist.findOne({ slug: req.params.slug, _id: identity.waitlistId }).session(session);
+      if (!waitlist) throw Object.assign(new Error("Invalid verification link"), { status: 401 });
+      // Serialize queue and referral changes, including repeated clicks on a verification link.
+      await Waitlist.updateOne({ _id: waitlist._id }, { $inc: { queueVersion: 1 } }, { session });
+      const signup = await Signup.findOne({ _id: identity.signupId, waitlistId: waitlist._id }).session(session);
+      if (!signup) throw Object.assign(new Error("Invalid verification link"), { status: 401 });
+      const emails = [];
+      if (signup.verificationState === "pending") {
+        signup.verificationState = "verified";
+        signup.verifiedAt = new Date();
+        await signup.save({ session });
+        const referrer = signup.referredBy ? await Signup.findOne({ waitlistId: waitlist._id, refCode: signup.referredBy,
+          verificationState: { $ne: "pending" }, _id: { $ne: signup._id } }).session(session) : null;
+        if (referrer) {
+          const [before] = await rankedSignups(waitlist._id, [{ $match: { _id: referrer._id } }], session);
+          await Signup.updateOne({ _id: referrer._id }, { $inc: { referralCount: 1 } }, { session });
+          referrer.referralCount += 1;
+          referrer.currentPosition = calculatePosition(referrer.basePosition, referrer.referralCount);
+          await referrer.save({ session });
+          const [after] = await rankedSignups(waitlist._id, [{ $match: { _id: referrer._id } }], session);
+          emails.push(await recordEmail({ dedupeKey: `referral-${signup._id}`, kind: "referral", waitlistId: waitlist._id, signupId: referrer._id,
+            to: referrer.email, subject: `Your ${waitlist.name} referral was verified`,
+            html: rankUpEmail({ waitlistName: waitlist.name, oldPosition: before.currentPosition, newPosition: after.currentPosition,
+              shareUrl: `${process.env.CLIENT_URL}/w/${waitlist.slug}?ref=${referrer.refCode}` }) }, session));
+        }
+        const [ranked] = await rankedSignups(waitlist._id, [{ $match: { _id: signup._id } }], session);
+        emails.push(await recordEmail({ dedupeKey: `confirmation-${signup._id}`, kind: "confirmation", waitlistId: waitlist._id, signupId: signup._id,
+          to: signup.email, subject: `You joined the ${waitlist.name} waitlist`,
+          html: confirmationEmail({ waitlistName: waitlist.name, position: ranked.currentPosition,
+            shareUrl: `${process.env.CLIENT_URL}/w/${waitlist.slug}?ref=${signup.refCode}` }) }, session));
+      }
+      return { signup, waitlist, emails };
+    });
+    await dispatchInline(result.emails);
+    res.json({ ...await signupState(result.signup, result.waitlist), statusToken: issueSubscriberToken(result.signup) });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.status ? err.message : "Unable to verify email. Please try again." });
+  }
+}
 
 async function emailStatusLink(signup, waitlist) {
+  if (signup.verificationState === "pending") {
+    await dispatchInline([await verificationNotification(signup, waitlist)]);
+    return;
+  }
   const statusUrl = `${process.env.CLIENT_URL}/w/${waitlist.slug}#status=${issueSubscriberToken(signup)}`;
   const email = await recordEmail({ dedupeKey: `status-${signup._id}-${Math.floor(Date.now() / 300000)}`, kind: "status", waitlistId: waitlist._id,
     signupId: signup._id, to: signup.email, subject: "Your private LaunchQueue status link", html: statusEmail({ statusUrl }), expiresAt: new Date(Date.now() + 7 * 86400000) });
@@ -149,7 +186,7 @@ async function checkPosition(req, res) {
       return res.status(401).json({ error: "A valid private status link is required" });
     }
     const signup = await Signup.findOne({ _id: identity.signupId, waitlistId: waitlist._id });
-    if (!signup) return res.status(401).json({ error: "A valid private status link is required" });
+    if (!signup || signup.verificationState === "pending") return res.status(401).json({ error: "A valid private status link is required" });
     res.json({ ...await signupState(signup, waitlist), statusToken: req.get("X-Subscriber-Token") });
   } catch {
     res.status(500).json({ error: "Unable to retrieve status" });
@@ -182,7 +219,7 @@ async function getLeaderboard(req, res) {
     }
 
     const topReferrers = await rankedSignups(waitlist._id, [
-      { $match: { referralCount: { $gt: 0 } } },
+      { $match: { referralCount: { $gt: 0 }, verificationState: { $ne: "pending" } } },
       { $sort: { referralCount: -1, currentPosition: 1 } }, { $limit: 10 },
       { $project: { email: 1, referralCount: 1, currentPosition: 1 } },
     ]);
@@ -251,6 +288,7 @@ async function getRecentActivity(req, res) {
     }
 
     const recentSignups = await rankedSignups(waitlist._id, [
+      { $match: { verificationState: { $ne: "pending" } } },
       { $sort: { createdAt: -1, _id: -1 } }, { $limit: 8 },
       { $project: { email: 1, currentPosition: 1, createdAt: 1 } },
     ]);
@@ -276,6 +314,7 @@ module.exports = {
   join,
   checkPosition,
   requestStatusLink,
+  verifyEmail,
   getLeaderboard,
   recordVisit,
   getRecentActivity,

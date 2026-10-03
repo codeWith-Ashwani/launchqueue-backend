@@ -544,14 +544,13 @@ paths:
 
   /api/w/{slug}/signup:
     post:
-      summary: Join a waitlist or retrieve existing subscriber queue rank
+      summary: Request an email verification or private status link
       tags: [Public Waitlist]
       parameters:
         - in: path
           name: slug
           required: true
-          schema:
-            type: string
+          schema: { type: string }
       requestBody:
         required: true
         content:
@@ -559,56 +558,79 @@ paths:
             schema:
               $ref: '#/components/schemas/SignupJoinRequest'
       responses:
-        '201':
-          description: Fresh subscriber joined queue
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SignupJoinResponse'
-        '200':
-          description: Existing subscriber looked up (alreadyJoined is true)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SignupJoinResponse'
+        '202':
+          description: Generic inbox instructions, without private subscriber data
         '400':
-          description: Validation error or disposable email address
+          description: Validation error or disposable email
         '403':
-          description: Waitlist is paused
+          description: Campaign paused
         '404':
-          description: Waitlist not found
+          description: Campaign not found
 
-  /api/w/{slug}/position:
-    get:
-      summary: Query subscriber queue rank and milestone progress by refCode or email
+  /api/w/{slug}/verify:
+    post:
+      summary: Verify mailbox ownership and credit a referral exactly once
       tags: [Public Waitlist]
       parameters:
         - in: path
           name: slug
           required: true
-          schema:
-            type: string
-        - in: query
-          name: ref
-          schema:
-            type: string
-          description: 8-character unique referral code
-        - in: query
-          name: email
-          schema:
-            type: string
-          description: Subscriber email address
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string, maxLength: 2048 }
       responses:
         '200':
-          description: Live queue position and milestone rewards
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PositionResponse'
-        '400':
-          description: Missing ref code or email query parameter
-        '404':
-          description: Signup not found
+          description: Verified subscriber status with a private statusToken
+        '401':
+          description: Invalid, expired or incorrectly scoped proof
+
+  /api/w/{slug}/status-link:
+    post:
+      summary: Request private status or verification recovery by email
+      tags: [Public Waitlist]
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        '202':
+          description: Identical response for known and unknown addresses
+
+  /api/w/{slug}/position:
+    get:
+      summary: Read private subscriber status with a signed token
+      tags: [Public Waitlist]
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema: { type: string }
+        - in: header
+          name: X-Subscriber-Token
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Live queue rank and rewards
+        '401':
+          description: Valid private token for a verified subscriber required
 
   /api/w/{slug}/leaderboard:
     get:
