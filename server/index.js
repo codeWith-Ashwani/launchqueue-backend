@@ -15,6 +15,13 @@ validateEnv();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const { redisHealth, closeRedis } = require("./config/redis");
+
+app.get("/health", (_req, res) => res.json({ status: "alive" }));
+app.get("/ready", async (_req, res) => {
+  const database = mongoose.connection.readyState === 1;
+  res.status(database ? 200 : 503).json({ status: database ? "ready" : "unavailable", database, redis: await redisHealth() });
+});
 
 // Security headers with Helmet
 app.use(
@@ -91,10 +98,13 @@ if (require.main === module) {
     .then(() => {
       console.log("✅ MongoDB connected");
 
-      app.listen(PORT, () => {
+      const server = app.listen(PORT, () => {
         console.log(`✅ Server running on port ${PORT}`);
         console.log(`📚 Interactive API docs available at http://localhost:${PORT}/api/docs`);
       });
+      const shutdown = () => server.close(async () => { await closeRedis(); await mongoose.disconnect(); });
+      process.once("SIGTERM", shutdown);
+      process.once("SIGINT", shutdown);
     })
     .catch((err) => {
       console.error("❌ MongoDB connection failed:", err.message);

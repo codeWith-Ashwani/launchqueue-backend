@@ -5,7 +5,7 @@ Branch in both repositories: `feature/reliability-and-redis`.
 1. Baseline: complete and pushed. Backend: 68 tests. Frontend: 31 tests and production build. Node 22 CI runs on feature branches.
 2. Referral correctness: complete. Transactional allocation and referral attribution; derived, contiguous ranks; manual moves reorder neighbours. Backend: 73 tests, including concurrency and rollback. Frontend: 32 tests and production build.
 3. Subscriber privacy: complete. Public referral codes and email lookups no longer retrieve private status. Seven-day scoped status tokens and generic email recovery added. Repeat signup returns recovery instructions without private data. Backend: 78 tests. Frontend: 34 tests and production build.
-4. Redis connections and worker infrastructure: pending.
+4. Redis infrastructure: complete. Optional validated connections, bounded request timeouts, persistent worker connections, health/readiness endpoints, graceful shutdown, Render deployment instructions, and Redis-backed CI. Verified against local Redis 7, including independent-connection atomic counters.
 5. Durable email outbox and BullMQ delivery: pending.
 6. Subscriber verification before referral credit: pending.
 7. Shared rate limiting and authentication hardening: pending.

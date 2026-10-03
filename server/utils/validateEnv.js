@@ -1,4 +1,5 @@
 function validateEnv() {
+  require("../config/redis").validateRedisUrl(process.env.REDIS_URL);
   const requiredVars = [
     "MONGO_URI",
     "JWT_SECRET",
