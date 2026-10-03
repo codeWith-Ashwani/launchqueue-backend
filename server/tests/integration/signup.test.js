@@ -60,9 +60,9 @@ describe("Signup Flow Integration Tests", () => {
       .post("/api/w/early-beta/signup")
       .send({ email: "duplicate@example.com" });
 
-    expect(duplicateRes.status).toBe(200);
+    expect(duplicateRes.status).toBe(202);
     expect(duplicateRes.body.alreadyJoined).toBe(true);
-    expect(duplicateRes.body.email).toBe("duplicate@example.com");
+    expect(duplicateRes.body.email).toBeUndefined();
   });
 
   it("improves referrer position when joining with a valid referral code", async () => {
@@ -111,7 +111,7 @@ describe("Signup Flow Integration Tests", () => {
         ref: ownRefCode,
       });
 
-    expect(res2.status).toBe(200);
+    expect(res2.status).toBe(202);
     expect(res2.body.alreadyJoined).toBe(true);
 
     const referrer = await Signup.findOne({ email: "selfref@example.com" });

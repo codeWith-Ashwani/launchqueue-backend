@@ -236,6 +236,8 @@ $$\text{Current Position} = \max\left(1, \text{Base Position} - (\text{Referral 
 > Complete documentation is available via the Swagger UI at `/api/docs`.
 
 ### Public Routes (`/api/w`)
+
+Build 3 requires `X-Subscriber-Token` for `/api/w/:slug/position`; the old email/referral query lookup is disabled. `POST /api/w/:slug/status-link` accepts an email and returns the same 202 response whether it exists or not. Recovery emails contain a seven-day private link in the URL fragment. Repeat signup returns 202 recovery instructions without subscriber data. Deploy the matching frontend update before advertising status recovery.
 | Method | Endpoint | Description | Rate Limit |
 | :--- | :--- | :--- | :---: |
 | `GET` | `/api/w/:slug` | Fetch public waitlist details and styling | Not currently limited |
