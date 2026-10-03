@@ -295,8 +295,8 @@ Inline mode preserves local development compatibility and records delivery failu
 ## Payment Integration (Lemon Squeezy)
 
 - **Checkout**: Generates hosted checkout URLs using Lemon Squeezy API v1 with custom passthrough data (`founder_id`).
-- **Webhook Verification**: Checks HMAC SHA-256 over the raw JSON request body. Timing-safe comparison is planned.
-- **Lifecycle Events**: Currently processes `subscription_created` and `subscription_updated`, including active, cancelled, and expired statuses. Dedicated lifecycle handling and event ordering protection are planned.
+- **Webhook Verification**: Checks HMAC SHA-256 over the raw JSON body with a length-checked, timing-safe comparison. Signed payloads are validated before processing.
+- **Lifecycle Events**: Processes subscription creation, updates, cancellation, resumption, expiry, pause and unpause. MongoDB receipts deduplicate retries; provider update timestamps prevent older events from overwriting newer states. Past-due and paused subscriptions retain access; unpaid and expired subscriptions lose access. Cancellation retains access until `ends_at`, enforced on reads even if an expiry webhook is delayed. Old subscription IDs and mismatched test-mode events are ignored. Portal links are refreshed from the provider because signed links expire.
 
 ---
 
@@ -321,7 +321,7 @@ npm test
 npm run lint
 ```
 
-### Test Suites (24 suites, 104 tests verified in Build 7)
+### Test Suites (26 suites, 113 tests verified in Build 8)
 - `adminControls.test.js`: Position override validation, unowned resource 404 guards, batch invite execution.
 - `auth.test.js`: Registration, login, duplicate email rejection, session verification.
 - `calculatePosition.test.js`: Unit tests for mathematical referral queue promotion formula.
@@ -425,7 +425,7 @@ For the worker, set root directory `server`, build command `npm ci`, and start c
 - Queue delivery requires a running worker; API requests can safely persist notifications during Redis outages, but delivery waits for recovery.
 - SMTP receipt means the provider accepted the message, not that it reached the subscriber's inbox.
 - Referral ranks use aggregation across the campaign; pagination and larger-volume performance work are planned.
-- Billing lifecycle and entitlement enforcement are planned in later builds.
+- Browser end-to-end coverage and larger-volume analytics improvements are planned in later builds.
 
 ## Shared Request Protection
 
@@ -434,3 +434,14 @@ When `REDIS_URL` is configured, authentication, signup, recovery, verification, 
 `TRUST_PROXY_HOPS` defaults to 0. Set an explicit hop count only after checking the actual Render proxy path; never use unrestricted proxy trust. See [Express proxy guidance](https://expressjs.com/en/guide/behind-proxies/).
 
 Unsafe requests to founder APIs reject untrusted browser origins. Cookie-based mutations also require `X-LaunchQueue-Request: 1`; the frontend Axios client adds this header. API clients using bearer tokens can continue without this browser header. The provider-signed billing webhook is exempt. Request bodies, strings, batch sizes, resource IDs, and bcrypt password byte lengths are bounded. Reset-token consumption is atomic under concurrent submissions.
+
+## Enforced Plan Limits
+
+| Plan | Campaigns | Signups per campaign | CSV export |
+| --- | ---: | ---: | --- |
+| Free | 1 | 500 | No |
+| Starter | 3 | 5,000 | Yes |
+| Pro | 10 | 25,000 | Yes |
+| Agency | Unlimited | Unlimited | Yes |
+
+Creation and signup limits are checked inside MongoDB transactions, including pending signups. Existing data is preserved after downgrades; capacity checks block new additions. CSV checks campaign ownership before plan access. Pricing lists implemented features only. Subscribe the provider webhook to `subscription_created` and `subscription_updated` at minimum. Set `LEMONSQUEEZY_TEST_MODE=true` only for a test-mode integration.
