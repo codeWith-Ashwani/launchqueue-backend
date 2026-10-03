@@ -36,6 +36,9 @@ const signupSchema = new mongoose.Schema(
       required: true,
     },
     invitationState: { type: String, enum: ["none", "queued", "sent", "failed"], default: "none" },
+    // Existing subscribers retain their queue access; new public joins explicitly start pending.
+    verificationState: { type: String, enum: ["legacy", "pending", "verified"], default: "legacy" },
+    verifiedAt: Date,
     status: {
       type: String,
       enum: ["waiting", "invited"],

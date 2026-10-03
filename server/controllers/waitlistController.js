@@ -183,8 +183,10 @@ async function updateSignupPosition(req, res) {
       const ordered = await rankedSignups(waitlist._id, [], session);
       const target = ordered.find((entry) => entry._id.toString() === signupId);
       if (!target) throw Object.assign(new Error("Signup not found"), { status: 404 });
-      if (currentPosition > ordered.length) throw Object.assign(new Error("Position exceeds queue size"), { status: 400 });
-      const others = ordered.filter((entry) => entry._id.toString() !== signupId);
+      if (target.verificationState === "pending") throw Object.assign(new Error("Subscriber must verify their email first"), { status: 400 });
+      const eligible = ordered.filter((entry) => entry.verificationState !== "pending");
+      if (currentPosition > eligible.length) throw Object.assign(new Error("Position exceeds queue size"), { status: 400 });
+      const others = eligible.filter((entry) => entry._id.toString() !== signupId);
       const index = currentPosition - 1;
       const before = others[index - 1];
       const after = others[index];
@@ -232,7 +234,7 @@ async function batchInvite(req, res) {
 
     const emails = await mongoose.connection.transaction(async (session) => {
       await Waitlist.updateOne({ _id: waitlist._id }, { $inc: { queueVersion: 1 } }, { session });
-      const selected = await Signup.find({ _id: { $in: signupIds }, waitlistId: waitlist._id, status: { $ne: "invited" } }).session(session);
+      const selected = await Signup.find({ _id: { $in: signupIds }, waitlistId: waitlist._id, status: { $ne: "invited" }, verificationState: { $ne: "pending" } }).session(session);
       const queued = [];
       for (const signup of selected) {
         let email = await EmailOutbox.findOne({ dedupeKey: `invitation-${signup._id}` }).session(session);

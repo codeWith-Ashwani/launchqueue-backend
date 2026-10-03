@@ -1,3 +1,4 @@
+const verifySignup = require("../verifySignup");
 const request = require("supertest");
 const app = require("../../index");
 const Founder = require("../../models/Founder");
@@ -23,18 +24,23 @@ describe("Concurrent referral queue", () => {
 
   it("allocates unique increasing sequences under concurrent joins", async () => {
     const responses = await Promise.all(Array.from({ length: 12 }, (_, i) => join(`user${i}@example.com`)));
-    expect(responses.every((r) => r.status === 201)).toBe(true);
+    expect(responses.every((r) => r.status === 202)).toBe(true);
     const rows = await Signup.find({ waitlistId: waitlist._id }).sort({ basePosition: 1 });
     expect(rows.map((r) => r.basePosition)).toEqual(Array.from({ length: 12 }, (_, i) => i + 1));
   }, 30000);
 
   it("credits every simultaneous referral and deduplicates concurrent retries", async () => {
-    const original = await join("referrer@example.com");
+    await join("referrer@example.com");
+    const original = await verifySignup(app, "queue", "referrer@example.com");
     const responses = await Promise.all(Array.from({ length: 8 }, (_, i) => join(`friend${i}@example.com`, original.body.refCode)));
-    expect(responses.every((r) => r.status === 201)).toBe(true);
+    expect(responses.every((r) => r.status === 202)).toBe(true);
     const retries = await Promise.all(Array.from({ length: 5 }, () => join("retry@example.com", original.body.refCode)));
-    expect(retries.filter((r) => r.status === 201)).toHaveLength(1);
-    expect(retries.filter((r) => r.status === 202)).toHaveLength(4);
+    expect(retries.every((r) => r.status === 202)).toBe(true);
+    const verifications = await Promise.all([
+      ...Array.from({ length: 8 }, (_, i) => verifySignup(app, "queue", `friend${i}@example.com`)),
+      ...Array.from({ length: 5 }, () => verifySignup(app, "queue", "retry@example.com")),
+    ]);
+    expect(verifications.every((r) => r.status === 200)).toBe(true);
     const referrer = await Signup.findOne({ refCode: original.body.refCode });
     expect(referrer.referralCount).toBe(9);
     expect(await Signup.countDocuments({ waitlistId: waitlist._id })).toBe(10);
@@ -55,6 +61,7 @@ describe("Concurrent referral queue", () => {
     await join("first@example.com");
     await join("second@example.com");
     await join("third@example.com");
+    for (const email of ["first@example.com", "second@example.com", "third@example.com"]) await verifySignup(app, "queue", email);
     const third = await Signup.findOne({ email: "third@example.com" });
     const result = await request(app).patch(`/api/waitlists/${waitlist._id}/signups/${third._id}/position`)
       .set("Authorization", `Bearer ${token}`).send({ currentPosition: 1 });
@@ -64,14 +71,17 @@ describe("Concurrent referral queue", () => {
     expect(ranked.map((r) => r.currentPosition)).toEqual([1, 2, 3]);
   });
 
-  it("rolls back signup allocation when referral persistence fails", async () => {
-    const original = await join("referrer@example.com");
+  it("rolls back verification and credit when referral persistence fails", async () => {
+    await join("referrer@example.com");
+    const original = await verifySignup(app, "queue", "referrer@example.com");
+    await join("friend@example.com", original.body.refCode);
     const failure = jest.spyOn(Signup, "updateOne").mockRejectedValueOnce(new Error("Simulated write failure"));
-    const result = await join("friend@example.com", original.body.refCode);
+    const result = await verifySignup(app, "queue", "friend@example.com");
     failure.mockRestore();
     expect(result.status).toBe(500);
-    expect(await Signup.countDocuments({ waitlistId: waitlist._id })).toBe(1);
-    expect((await Waitlist.findById(waitlist._id)).signupSequence).toBe(1);
+    expect(await Signup.countDocuments({ waitlistId: waitlist._id })).toBe(2);
+    expect((await Signup.findOne({ email: "friend@example.com" })).verificationState).toBe("pending");
+    expect((await Waitlist.findById(waitlist._id)).signupSequence).toBe(2);
     expect((await Signup.findOne({ refCode: original.body.refCode })).referralCount).toBe(0);
   });
 });

@@ -1,3 +1,4 @@
+const verifySignup = require("../verifySignup");
 const request = require("supertest");
 const app = require("../../index");
 const Waitlist = require("../../models/Waitlist");
@@ -40,10 +41,13 @@ describe("Signup Flow Integration Tests", () => {
       .post("/api/w/early-beta/signup")
       .send({ email: "newuser@example.com" });
 
-    expect(res.status).toBe(201);
-    expect(res.body).toHaveProperty("position", 1);
-    expect(res.body).toHaveProperty("refCode");
-    expect(res.body.alreadyJoined).toBe(false);
+    expect(res.status).toBe(202);
+    expect(res.body.statusLinkSent).toBe(true);
+    expect(res.body.position).toBeUndefined();
+    const verified = await verifySignup(app, "early-beta", "newuser@example.com");
+    expect(verified.status).toBe(200);
+    expect(verified.body.position).toBe(1);
+    expect(verified.body.refCode).toBeDefined();
 
     const saved = await Signup.findOne({ email: "newuser@example.com" });
     expect(saved).not.toBeNull();
@@ -61,7 +65,7 @@ describe("Signup Flow Integration Tests", () => {
       .send({ email: "duplicate@example.com" });
 
     expect(duplicateRes.status).toBe(202);
-    expect(duplicateRes.body.alreadyJoined).toBe(true);
+    expect(duplicateRes.body.statusLinkSent).toBe(true);
     expect(duplicateRes.body.email).toBeUndefined();
   });
 
@@ -71,7 +75,8 @@ describe("Signup Flow Integration Tests", () => {
       .post("/api/w/early-beta/signup")
       .send({ email: "user1@example.com" });
 
-    const referrerRefCode = user1Res.body.refCode;
+    expect(user1Res.status).toBe(202);
+    const referrerRefCode = (await verifySignup(app, "early-beta", "user1@example.com")).body.refCode;
 
     // Simulate referrer starting at basePosition 10 for clarity
     await Signup.updateOne(
@@ -87,7 +92,9 @@ describe("Signup Flow Integration Tests", () => {
         ref: referrerRefCode,
       });
 
-    expect(user2Res.status).toBe(201);
+    expect(user2Res.status).toBe(202);
+    expect((await Signup.findOne({ email: "user1@example.com" })).referralCount).toBe(0);
+    expect((await verifySignup(app, "early-beta", "user2@example.com")).status).toBe(200);
 
     // 3. Verify user1's referralCount and currentPosition improved
     const updatedReferrer = await Signup.findOne({ email: "user1@example.com" });
@@ -101,7 +108,8 @@ describe("Signup Flow Integration Tests", () => {
       .post("/api/w/early-beta/signup")
       .send({ email: "selfref@example.com" });
 
-    const ownRefCode = res1.body.refCode;
+    expect(res1.status).toBe(202);
+    const ownRefCode = (await verifySignup(app, "early-beta", "selfref@example.com")).body.refCode;
 
     // Attempt to signup again with same email using own refCode
     const res2 = await request(app)
@@ -112,7 +120,7 @@ describe("Signup Flow Integration Tests", () => {
       });
 
     expect(res2.status).toBe(202);
-    expect(res2.body.alreadyJoined).toBe(true);
+    expect(res2.body.statusLinkSent).toBe(true);
 
     const referrer = await Signup.findOne({ email: "selfref@example.com" });
     expect(referrer.referralCount).toBe(0);

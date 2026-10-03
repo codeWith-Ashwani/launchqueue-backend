@@ -9,11 +9,14 @@ function rankPipeline(waitlistId) {
       { $ifNull: ["$priorityOffset", 0] },
     ] } } },
     { $set: { queueOrder: { score: "$queueScore", sequence: "$basePosition", id: "$_id" } } },
+    { $set: { queueEligible: { $ne: ["$verificationState", "pending"] } } },
     { $setWindowFields: {
+      partitionBy: "$queueEligible",
       sortBy: { queueOrder: 1 },
       output: { currentPosition: { $documentNumber: {} } },
     } },
-    { $sort: { currentPosition: 1 } },
+    { $set: { currentPosition: { $cond: ["$queueEligible", "$currentPosition", null] } } },
+    { $sort: { queueEligible: -1, currentPosition: 1, basePosition: 1 } },
   ];
 }
 

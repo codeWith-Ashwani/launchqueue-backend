@@ -55,7 +55,7 @@
         const res = await fetch(`${apiBase}/api/w/${slug}/signup`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, ref }),
+          body: JSON.stringify({ email, ref: ref || undefined }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Something went wrong");
@@ -70,16 +70,8 @@
   }
 
   function renderSuccess(data) {
-    const shareUrl = `${window.location.origin}${window.location.pathname}?ref=${data.refCode}`;
-    container.innerHTML = `
-      <div class="lq-success">
-        <p class="lq-position">#${data.position}</p>
-        <p style="color:#666;font-size:13px;margin:0;">your position on the waitlist</p>
-        <div class="lq-share">${shareUrl}</div>
-        <p style="color:#999;font-size:12px;">Share this link — every signup moves you up.</p>
-      </div>
-      <a class="lq-badge" href="${apiBase}" target="_blank" rel="noopener">Powered by LaunchQueue</a>
-    `;
+    container.innerHTML = '<div class="lq-success"><p role="status"></p></div>';
+    container.querySelector('[role="status"]').textContent = data.message || "Check your inbox to verify your email.";
   }
 
   renderForm();

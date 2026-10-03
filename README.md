@@ -220,8 +220,9 @@ $$\text{Current Position} = \max\left(1, \text{Base Position} - (\text{Referral 
 
 ### Join & Attribution Lifecycle
 1. Reject disposable email domains and paused campaigns.
-2. Allocate a monotonic sequence, create the subscriber, and attribute the referral in one MongoDB transaction. Duplicate joins request a private status link instead of exposing subscriber details.
-3. Derive contiguous ranks by score, sequence, and document ID.
+2. Allocate a monotonic sequence and create a pending subscriber with a verification email in one MongoDB transaction. Duplicate joins request a private status link instead of exposing subscriber details.
+3. A 24-hour, campaign-scoped verification link proves mailbox ownership. Verification, referral credit, and confirmation notifications commit together. Repeated concurrent verification requests award the referral once. Pending records do not affect ranks or receive invitations. Existing records retain legacy access without claiming they were verified.
+4. Derive contiguous ranks by score, sequence, and document ID.
 4. Store confirmation and referral emails in the same transaction as the business change. A rollback also removes the notification.
 5. Read private subscriber status through a signed, campaign-scoped token. Status-link recovery responds generically for known and unknown email addresses.
 
@@ -280,8 +281,8 @@ Build 3 requires `X-Subscriber-Token` for `/api/w/:slug/position`; the old email
 ## Email & Notification Services
 
 Transactional emails are dispatched using **Nodemailer** with modular HTML templates (`server/templates/`):
-- `confirmationEmail.js`: Sent immediately upon joining, including current position and referral link.
-- `rankUpEmail.js`: Sent to referrers when an invited friend joins, displaying their updated rank.
+- `confirmationEmail.js`: Sent after email verification, including the current rank and referral link.
+- `rankUpEmail.js`: Sent to referrers when a referred friend verifies their email, displaying their updated rank.
 - `invitedEmail.js`: Sent when an admin issues a batch invite, including the founder's custom `thankYouMessage`.
 - `passwordResetEmail.js`: Sent on password reset requests with a secure reset link.
 
@@ -320,7 +321,7 @@ npm test
 npm run lint
 ```
 
-### Test Suites (21 suites, 92 tests verified in Build 5)
+### Test Suites (22 suites, 96 tests verified in Build 6)
 - `adminControls.test.js`: Position override validation, unowned resource 404 guards, batch invite execution.
 - `auth.test.js`: Registration, login, duplicate email rejection, session verification.
 - `calculatePosition.test.js`: Unit tests for mathematical referral queue promotion formula.
@@ -424,4 +425,4 @@ For the worker, set root directory `server`, build command `npm ci`, and start c
 - Queue delivery requires a running worker; API requests can safely persist notifications during Redis outages, but delivery waits for recovery.
 - SMTP receipt means the provider accepted the message, not that it reached the subscriber's inbox.
 - Referral ranks use aggregation across the campaign; pagination and larger-volume performance work are planned.
-- Billing entitlements and subscriber verification are planned in later builds.
+- Billing entitlements and shared request protection are planned in later builds.
