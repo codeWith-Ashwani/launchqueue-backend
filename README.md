@@ -212,6 +212,8 @@ Represents lightweight unique traffic events for conversion analytics.
 
 ## Core Referral Engine Logic
 
+Build 2 replaces displayed score values with contiguous ranks derived by `server/services/ranking.js`. Queue priority is `basePosition - referralCount * 5 + priorityOffset`, ordered by score, original sequence, then document ID. Signup sequence allocation and referral attribution commit in one transaction; retries cannot award the same signup twice. The legacy formula below remains only for compatibility with the stored `currentPosition` field. Manual position edits reorder neighbours through priority offsets. MongoDB 5+ running as a replica set is required. See [build progress and deployment prerequisites](docs/BUILD_PROGRESS.md).
+
 The queue calculation is isolated in `server/utils/calculatePosition.js`:
 
 $$\text{Current Position} = \max\left(1, \text{Base Position} - (\text{Referral Count} \times 5)\right)$$

@@ -1,3 +1,4 @@
+const { rankedSignups } = require("../services/ranking");
 const Waitlist = require("../models/Waitlist");
 const Signup = require("../models/Signup");
 const PageView = require("../models/PageView");
@@ -47,19 +48,15 @@ async function getStats(req, res) {
         ? Math.round((referredCount / totalSignups) * 100)
         : 0;
 
-    const topReferrers = await Signup.find({
-      waitlistId: waitlist._id,
-      referralCount: { $gt: 0 },
-    })
-      .sort({ referralCount: -1 })
-      .limit(10)
-      .select("email referralCount currentPosition status");
+    const topReferrers = await rankedSignups(waitlist._id, [
+      { $match: { referralCount: { $gt: 0 } } },
+      { $sort: { referralCount: -1, currentPosition: 1 } }, { $limit: 10 },
+      { $project: { email: 1, referralCount: 1, currentPosition: 1, status: 1 } },
+    ]);
 
-    const signups = await Signup.find({
-      waitlistId: waitlist._id,
-    })
-      .sort({ currentPosition: 1 })
-      .select("email referralCount currentPosition status createdAt");
+    const signups = await rankedSignups(waitlist._id, [{ $project: {
+      email: 1, referralCount: 1, currentPosition: 1, status: 1, createdAt: 1,
+    } }]);
 
     // Signups grouped by day, last 30 days, for the chart
     const thirtyDaysAgo = new Date();
@@ -161,13 +158,11 @@ async function getFunnelStats(req, res) {
       ...dateFilter,
     });
 
-    const topReferrers = await Signup.find({
-      waitlistId: waitlist._id,
-      referralCount: { $gt: 0 },
-    })
-      .sort({ referralCount: -1 })
-      .limit(5)
-      .select("email refCode referralCount currentPosition status");
+    const topReferrers = await rankedSignups(waitlist._id, [
+      { $match: { referralCount: { $gt: 0 } } },
+      { $sort: { referralCount: -1, currentPosition: 1 } }, { $limit: 5 },
+      { $project: { email: 1, refCode: 1, referralCount: 1, currentPosition: 1, status: 1 } },
+    ]);
 
     res.json({
       totalPageViews,
@@ -205,9 +200,7 @@ async function exportCsv(req, res) {
       });
     }
 
-    const signups = await Signup.find({
-      waitlistId: waitlist._id,
-    }).sort({ currentPosition: 1 });
+    const signups = await rankedSignups(waitlist._id);
 
     const header = "email,position,referralCount,joinedAt\n";
 

@@ -1,12 +1,14 @@
 const mongoose = require("mongoose");
-const { MongoMemoryServer } = require("mongodb-memory-server");
+const { MongoMemoryReplSet } = require("mongodb-memory-server");
 
 let mongoServer;
 
 async function connectDb() {
-  mongoServer = await MongoMemoryServer.create();
+  mongoServer = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
   const uri = mongoServer.getUri();
   await mongoose.connect(uri);
+  // Ensure unique indexes exist before exercising concurrent writes.
+  await Promise.all(Object.values(mongoose.models).map((model) => model.init()));
 }
 
 async function closeDb() {

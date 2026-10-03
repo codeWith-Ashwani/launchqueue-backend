@@ -1,3 +1,5 @@
+const mongoose = require("mongoose");
+const { rankedSignups, signupState } = require("../services/ranking");
 const Waitlist = require("../models/Waitlist");
 const Signup = require("../models/Signup");
 const PageView = require("../models/PageView");
@@ -47,130 +49,60 @@ async function getWaitlistInfo(req, res) {
 async function join(req, res) {
   try {
     const { email, ref } = req.body;
-
-    if (!email) {
-      return res.status(400).json({ error: "Email is required" });
-    }
-
     if (isDisposableEmail(email)) {
-      return res
-        .status(400)
-        .json({ error: "Please use a real, non-disposable email address" });
+      return res.status(400).json({ error: "Please use a real, non-disposable email address" });
     }
+    const result = await mongoose.connection.transaction(async (session) => {
+      const waitlist = await Waitlist.findOne({ slug: req.params.slug }).session(session);
+      if (!waitlist) throw Object.assign(new Error("Waitlist not found"), { status: 404 });
+      if (waitlist.paused) throw Object.assign(new Error("This waitlist is not accepting new signups"), { status: 403 });
+      const existing = await Signup.findOne({ waitlistId: waitlist._id, email }).session(session);
+      if (existing) return { waitlist, signup: existing, alreadyJoined: true };
 
-    const waitlist = await Waitlist.findOne({ slug: req.params.slug });
-
-    if (!waitlist) {
-      return res.status(404).json({ error: "Waitlist not found" });
-    }
-    if (waitlist.paused) {
-      return res
-        .status(403)
-        .json({ error: "This waitlist is not accepting new signups" });
-    }
-
-    const existing = await Signup.findOne({
-      waitlistId: waitlist._id,
-      email: email.toLowerCase(),
-    });
-    if (existing) {
-      const positionsGained = Math.max(0, (existing.basePosition || existing.currentPosition) - existing.currentPosition);
-      return res.status(200).json({
-        position: existing.currentPosition,
-        basePosition: existing.basePosition || existing.currentPosition,
-        referralCount: existing.referralCount || 0,
-        positionsGained: positionsGained || (existing.referralCount || 0) * 5,
-        refCode: existing.refCode,
-        email: existing.email,
-        waitlistName: waitlist.name,
-        milestones: waitlist.milestones,
-        alreadyJoined: true,
-      });
-    }
-
-    // Determine valid referral code (prevent self-referrals and check existence)
-    let validReferrer = null;
-    if (ref && typeof ref === "string") {
-      const trimmedRef = ref.trim();
-      const foundReferrer = await Signup.findOne({
-        waitlistId: waitlist._id,
-        refCode: trimmedRef,
-      });
-
-      // Valid referrer only if found and email doesn't match the new signup email
-      if (foundReferrer && foundReferrer.email.toLowerCase() !== email.toLowerCase()) {
-        validReferrer = foundReferrer;
-      }
-    }
-
-    const basePosition =
-      (await Signup.countDocuments({ waitlistId: waitlist._id })) + 1;
-
-    const newSignup = await Signup.create({
-      waitlistId: waitlist._id,
-      email: email.toLowerCase(),
-      refCode: generateRefCode(),
-      referredBy: validReferrer ? validReferrer.refCode : null,
-      basePosition,
-      currentPosition: basePosition,
-    });
-
-    // --- send confirmation email to the person who just joined ---
-    const newSignupShareUrl = `${process.env.CLIENT_URL || "http://localhost:5173"}/w/${waitlist.slug}?ref=${newSignup.refCode}`;
-    sendEmail({
-      to: newSignup.email,
-      subject: `You're #${newSignup.currentPosition} on the ${waitlist.name} waitlist`,
-      html: confirmationEmail({
-        waitlistName: waitlist.name,
-        position: newSignup.currentPosition,
-        shareUrl: newSignupShareUrl,
-      }),
-    });
-
-    // Attribute referral credit to valid referrer
-    if (validReferrer) {
-      const oldPosition = validReferrer.currentPosition;
-      validReferrer.referralCount += 1;
-      validReferrer.currentPosition = calculatePosition(
-        validReferrer.basePosition,
-        validReferrer.referralCount,
+      // Bootstrap existing campaigns using their largest historical sequence.
+      const latest = await Signup.findOne({ waitlistId: waitlist._id }).sort({ basePosition: -1 }).session(session);
+      await Waitlist.updateOne({ _id: waitlist._id }, { $max: { signupSequence: latest?.basePosition || 0 } }, { session });
+      const allocated = await Waitlist.findOneAndUpdate(
+        { _id: waitlist._id }, { $inc: { signupSequence: 1 } }, { session, returnDocument: "after" }
       );
-      await validReferrer.save();
-
-      if (validReferrer.currentPosition < oldPosition) {
-        const referrerShareUrl = `${process.env.CLIENT_URL || "http://localhost:5173"}/w/${waitlist.slug}?ref=${validReferrer.refCode}`;
-        sendEmail({
-          to: validReferrer.email,
-          subject: `You moved up to #${validReferrer.currentPosition}!`,
-          html: rankUpEmail({
-            waitlistName: waitlist.name,
-            oldPosition,
-            newPosition: validReferrer.currentPosition,
-            shareUrl: referrerShareUrl,
-          }),
-        });
+      let referrer = ref ? await Signup.findOne({ waitlistId: waitlist._id, refCode: ref }).session(session) : null;
+      if (referrer?.email === email) referrer = null;
+      const [signup] = await Signup.create([{
+        waitlistId: waitlist._id, email, refCode: generateRefCode(),
+        referredBy: referrer?.refCode || null,
+        basePosition: allocated.signupSequence, currentPosition: allocated.signupSequence,
+      }], { session });
+      if (referrer) {
+        await Signup.updateOne({ _id: referrer._id }, { $inc: { referralCount: 1 } }, { session });
+        referrer = await Signup.findById(referrer._id).session(session);
+        // Retain the legacy score field for old clients; all new reads derive rank.
+        referrer.currentPosition = calculatePosition(referrer.basePosition, referrer.referralCount);
+        await referrer.save({ session });
+      }
+      return { waitlist, signup, referrer, alreadyJoined: false };
+    });
+    const data = await signupState(result.signup, result.waitlist, result.alreadyJoined);
+    if (!result.alreadyJoined) {
+      const shareUrl = `${process.env.CLIENT_URL}/w/${result.waitlist.slug}?ref=${result.signup.refCode}`;
+      void sendEmail({ to: result.signup.email, subject: `You're #${data.position} on the ${result.waitlist.name} waitlist`,
+        html: confirmationEmail({ waitlistName: result.waitlist.name, position: data.position, shareUrl }) });
+      if (result.referrer) {
+        const state = await signupState(result.referrer, result.waitlist);
+        void sendEmail({ to: result.referrer.email, subject: `Your ${result.waitlist.name} referral was credited`,
+          html: rankUpEmail({ waitlistName: result.waitlist.name, oldPosition: result.referrer.basePosition,
+            newPosition: state.position, shareUrl: `${process.env.CLIENT_URL}/w/${result.waitlist.slug}?ref=${result.referrer.refCode}` }) });
       }
     }
-
-    res.status(201).json({
-      position: newSignup.currentPosition,
-      basePosition: newSignup.basePosition,
-      referralCount: newSignup.referralCount || 0,
-      positionsGained: 0,
-      refCode: newSignup.refCode,
-      email: newSignup.email,
-      waitlistName: waitlist.name,
-      milestones: waitlist.milestones,
-      alreadyJoined: false,
-    });
+    return res.status(result.alreadyJoined ? 200 : 201).json(data);
   } catch (err) {
     if (err.code === 11000) {
-      return res.status(409).json({ error: "This email has already joined" });
+      const waitlist = await Waitlist.findOne({ slug: req.params.slug });
+      const existing = waitlist && await Signup.findOne({ waitlistId: waitlist._id, email: req.body.email });
+      if (existing) return res.json(await signupState(existing, waitlist, true));
+      return res.status(409).json({ error: "Please retry your signup" });
     }
     console.error("join waitlist error:", err);
-    res.status(500).json({
-      error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
-    });
+    return res.status(err.status || 500).json({ error: err.status ? err.message : "Unable to join waitlist" });
   }
 }
 
@@ -197,18 +129,7 @@ async function checkPosition(req, res) {
       return res.status(404).json({ error: "Signup not found" });
     }
 
-    const positionsGained = Math.max(0, (signup.basePosition || signup.currentPosition) - signup.currentPosition);
-
-    res.json({
-      position: signup.currentPosition,
-      basePosition: signup.basePosition || signup.currentPosition,
-      referralCount: signup.referralCount || 0,
-      positionsGained: positionsGained || (signup.referralCount || 0) * 5,
-      refCode: signup.refCode,
-      email: signup.email,
-      waitlistName: waitlist.name,
-      milestones: waitlist.milestones,
-    });
+    res.json(await signupState(signup, waitlist));
   } catch (err) {
     console.error("checkPosition error:", err);
     res.status(500).json({
@@ -242,13 +163,11 @@ async function getLeaderboard(req, res) {
       return res.status(404).json({ error: "Waitlist not found" });
     }
 
-    const topReferrers = await Signup.find({
-      waitlistId: waitlist._id,
-      referralCount: { $gt: 0 },
-    })
-      .sort({ referralCount: -1, currentPosition: 1 })
-      .limit(10)
-      .select("email referralCount currentPosition");
+    const topReferrers = await rankedSignups(waitlist._id, [
+      { $match: { referralCount: { $gt: 0 } } },
+      { $sort: { referralCount: -1, currentPosition: 1 } }, { $limit: 10 },
+      { $project: { email: 1, referralCount: 1, currentPosition: 1 } },
+    ]);
 
     const leaderboard = topReferrers.map((r, index) => ({
       _id: r._id,
@@ -313,10 +232,10 @@ async function getRecentActivity(req, res) {
       return res.status(404).json({ error: "Waitlist not found" });
     }
 
-    const recentSignups = await Signup.find({ waitlistId: waitlist._id })
-      .sort({ createdAt: -1 })
-      .limit(8)
-      .select("email currentPosition createdAt");
+    const recentSignups = await rankedSignups(waitlist._id, [
+      { $sort: { createdAt: -1, _id: -1 } }, { $limit: 8 },
+      { $project: { email: 1, currentPosition: 1, createdAt: 1 } },
+    ]);
 
     const activities = recentSignups.map((s) => ({
       id: s._id,

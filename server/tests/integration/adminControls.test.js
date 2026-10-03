@@ -5,6 +5,7 @@ const Waitlist = require("../../models/Waitlist");
 const Signup = require("../../models/Signup");
 const generateToken = require("../../utils/generateToken");
 const { connectDb, closeDb, clearDb } = require("../setupDb");
+jest.mock("../../utils/sendEmail", () => jest.fn().mockResolvedValue(true));
 
 describe("Admin Controls (Position Override & Batch Invite) Integration Tests", () => {
   let founder1;

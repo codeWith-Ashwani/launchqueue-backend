@@ -1,3 +1,5 @@
+const mongoose = require("mongoose");
+const { rankedSignups } = require("../services/ranking");
 const Waitlist = require("../models/Waitlist");
 const Signup = require("../models/Signup");
 const sendEmail = require("../utils/sendEmail");
@@ -42,8 +44,8 @@ async function create(req, res) {
     res.status(201).json({ waitlist });
   } catch (err) {
     console.error("Waitlist create error:", err);
-    res.status(500).json({
-      error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
+    res.status(err.status || 500).json({
+      error: err.status ? err.message : process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
     });
   }
 }
@@ -64,8 +66,8 @@ async function list(req, res) {
     res.json({ waitlists: withCounts });
   } catch (err) {
     console.error("Waitlist list error:", err);
-    res.status(500).json({
-      error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
+    res.status(err.status || 500).json({
+      error: err.status ? err.message : process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
     });
   }
 }
@@ -80,8 +82,8 @@ async function getOne(req, res) {
     res.json({ waitlist });
   } catch (err) {
     console.error("Waitlist getOne error:", err);
-    res.status(500).json({
-      error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
+    res.status(err.status || 500).json({
+      error: err.status ? err.message : process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
     });
   }
 }
@@ -111,8 +113,8 @@ async function update(req, res) {
     res.json({ waitlist });
   } catch (err) {
     console.error("Waitlist update error:", err);
-    res.status(500).json({
-      error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
+    res.status(err.status || 500).json({
+      error: err.status ? err.message : process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
     });
   }
 }
@@ -129,9 +131,7 @@ async function exportSignups(req, res) {
       return res.status(404).json({ error: "Waitlist not found" });
     }
 
-    const signups = await Signup.find({
-      waitlistId: waitlist._id,
-    }).sort({ currentPosition: 1 });
+    const signups = await rankedSignups(waitlist._id);
 
     const header = "email,currentPosition,referralCount,referredBy,joinedAt\n";
 
@@ -155,8 +155,8 @@ async function exportSignups(req, res) {
     res.status(200).send(header + (rows.length > 0 ? rows + "\n" : ""));
   } catch (err) {
     console.error("Waitlist exportSignups error:", err);
-    res.status(500).json({
-      error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
+    res.status(err.status || 500).json({
+      error: err.status ? err.message : process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
     });
   }
 }
@@ -176,25 +176,40 @@ async function updateSignupPosition(req, res) {
       return res.status(404).json({ error: "Waitlist not found" });
     }
 
-    const signup = await Signup.findOne({
-      _id: signupId,
-      waitlistId: waitlist._id,
+    const signup = await mongoose.connection.transaction(async (session) => {
+      // Serialize manual moves against concurrent joins and other moves.
+      await Waitlist.updateOne({ _id: waitlist._id }, { $inc: { queueVersion: 1 } }, { session });
+      const ordered = await rankedSignups(waitlist._id, [], session);
+      const target = ordered.find((entry) => entry._id.toString() === signupId);
+      if (!target) throw Object.assign(new Error("Signup not found"), { status: 404 });
+      if (currentPosition > ordered.length) throw Object.assign(new Error("Position exceeds queue size"), { status: 400 });
+      const others = ordered.filter((entry) => entry._id.toString() !== signupId);
+      const index = currentPosition - 1;
+      const before = others[index - 1];
+      const after = others[index];
+      const score = before && after ? (before.queueScore + after.queueScore) / 2 :
+        before ? before.queueScore + 1 : after ? after.queueScore - 1 : 1;
+      // Equal-score neighbours need deterministic spacing before inserting.
+      if (before && after && before.queueScore === after.queueScore) {
+        for (let i = 0; i < others.length; i++) {
+          await Signup.updateOne({ _id: others[i]._id }, { $set: {
+            priorityOffset: (i + 1) * 10 - (others[i].basePosition - others[i].referralCount * 5),
+          } }, { session });
+        }
+      }
+      const effectiveScore = before && after && before.queueScore === after.queueScore ? (index + 0.5) * 10 : score;
+      await Signup.updateOne({ _id: target._id }, { $set: {
+        priorityOffset: effectiveScore - (target.basePosition - target.referralCount * 5), currentPosition,
+      } }, { session });
+      const [updated] = await rankedSignups(waitlist._id, [{ $match: { _id: target._id } }], session);
+      return updated;
     });
-
-    if (!signup) {
-      return res.status(404).json({ error: "Signup not found" });
-    }
-
-    // Manual admin override: directly updates this signup's currentPosition.
-    // Intentionally does NOT recalculate or shuffle other signups' positions.
-    signup.currentPosition = currentPosition;
-    await signup.save();
 
     res.json({ signup });
   } catch (err) {
     console.error("Waitlist updateSignupPosition error:", err);
-    res.status(500).json({
-      error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
+    res.status(err.status || 500).json({
+      error: err.status ? err.message : process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
     });
   }
 }
@@ -251,8 +266,8 @@ async function batchInvite(req, res) {
     res.json({ invitedCount: validSignups.length });
   } catch (err) {
     console.error("Waitlist batchInvite error:", err);
-    res.status(500).json({
-      error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
+    res.status(err.status || 500).json({
+      error: err.status ? err.message : process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
     });
   }
 }
