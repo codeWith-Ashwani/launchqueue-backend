@@ -3,7 +3,6 @@
 [![CI](https://github.com/codeWith-Ashwani/launchqueue-backend/actions/workflows/ci.yml/badge.svg)](https://github.com/codeWith-Ashwani/launchqueue-backend/actions/workflows/ci.yml)
 [![Stack: Node.js + Express 5](https://img.shields.io/badge/Stack-Node.js%20%7C%20Express%205%20%7C%20MongoDB-111111?style=flat-square)](https://nodejs.org)
 [![API Docs: OpenAPI 3.0](https://img.shields.io/badge/API%20Docs-Swagger%20UI-green?style=flat-square)](http://localhost:5000/api/docs)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE)
 
 LaunchQueue Backend is a RESTful API service that powers the viral waitlist mechanics, subscriber queuing, referral attribution, campaign analytics, transactional emails, and subscription billing for LaunchQueue.
 
@@ -35,7 +34,7 @@ Built with Node.js, Express 5, and MongoDB (Mongoose 9), the service utilizes a 
 
 The LaunchQueue backend manages:
 1. **Founder Operations**: Account creation, profile customization, password changes, secure password resets, and subscription tier tracking.
-2. **Waitlist Campaign Management**: Multi-tenant waitlist creation with tier-based limits, customization of branding/milestones, RFC 4180 CSV exports, and manual subscriber queue overrides.
+2. **Waitlist Campaign Management**: Multi-tenant waitlist creation (plan limits are not yet enforced), customization of branding/milestones, RFC 4180 CSV exports, and manual subscriber queue overrides.
 3. **Public Referral Mechanics**: High-throughput public signup processing, anti-gaming validation (self-referrals, duplicate submissions, disposable emails), dynamic position recalculation, and anonymized leaderboards.
 4. **Analytics Pipelines**: Lightweight visitor tracking (`PageView`), 30-day time-series aggregation, and conversion funnel computation (`Page Views → Signups → Referred Signups`).
 5. **Billing & Webhooks**: Lemon Squeezy checkout session creation and HMAC SHA-256 verified webhook processing.
@@ -51,7 +50,7 @@ The LaunchQueue backend manages:
 - **Anti-Gaming Protections**: Blocks self-referrals, duplicate email credit, and temporary disposable email domains.
 - **Admin Subscriber Management**: Direct position overrides and bulk invitation endpoints dispatching concurrent emails via `Promise.allSettled`.
 - **Conversion Funnel Analytics**: Aggregates total page views, direct vs. referred signups, and conversion rate with zero-division safety.
-- **RFC 4180 CSV Exporter**: Custom CSV formatting with comma/quote escaping, gated behind paid founder subscription tiers.
+- **RFC 4180 CSV Exporter**: Custom CSV formatting with comma/quote escaping, available to the campaign owner; paid-plan enforcement is planned.
 - **Interactive OpenAPI 3.0 Documentation**: Complete API specification served via Swagger UI at `/api/docs`.
 
 ---
@@ -60,10 +59,10 @@ The LaunchQueue backend manages:
 
 | Component | Technology | Purpose |
 | :--- | :--- | :--- |
-| **Runtime** | Node.js (>= 18.x) | Asynchronous JavaScript runtime |
+| **Runtime** | Node.js 22 (>= 22.13) | Asynchronous JavaScript runtime |
 | **Web Framework** | Express 5.x | HTTP routing, controller orchestration, and middleware pipeline |
 | **Database & ODM** | MongoDB with Mongoose 9.x | Document database with schema modeling, validation, and indexing |
-| **Validation** | Zod 3.x | Strict schema-based request body validation middleware |
+| **Validation** | Zod 4.x | Strict schema-based request body validation middleware |
 | **Authentication** | JSON Web Tokens (`jsonwebtoken`), `bcryptjs`, `google-auth-library` | Token issuance, password hashing (cost factor 10), and Google ID token verification |
 | **Security Middleware** | `helmet`, `cors`, `cookie-parser`, `express-rate-limit` | HTTP headers, origin whitelisting, cookie parsing, and rate limiting |
 | **Email Delivery** | Nodemailer | SMTP transactional email transport with HTML template rendering |
@@ -178,7 +177,7 @@ Represents lightweight unique traffic events for conversion analytics.
 ## Authentication & Security
 
 ### Token Architecture
-- **JWT Signing**: Signs payload `{ id: founder._id }` using `JWT_SECRET` with a 7-day expiry.
+- **JWT Signing**: Signs payload `{ id: founder._id }` using `JWT_SECRET` with a 30-day expiry (the cookie lasts 7 days).
 - **Dual Delivery**: Delivered via `httpOnly` cookie (`token`) and returned in the JSON response body.
 - **Cookie Security Options**:
   ```javascript
@@ -213,6 +212,8 @@ Represents lightweight unique traffic events for conversion analytics.
 
 ## Core Referral Engine Logic
 
+Build 2 replaces displayed score values with contiguous ranks derived by `server/services/ranking.js`. Queue priority is `basePosition - referralCount * 5 + priorityOffset`, ordered by score, original sequence, then document ID. Signup sequence allocation and referral attribution commit in one transaction; retries cannot award the same signup twice. The legacy formula below remains only for compatibility with the stored `currentPosition` field. Manual position edits reorder neighbours through priority offsets. MongoDB 5+ running as a replica set is required. See [build progress and deployment prerequisites](docs/BUILD_PROGRESS.md).
+
 The queue calculation is isolated in `server/utils/calculatePosition.js`:
 
 $$\text{Current Position} = \max\left(1, \text{Base Position} - (\text{Referral Count} \times 5)\right)$$
@@ -225,8 +226,8 @@ $$\text{Current Position} = \max\left(1, \text{Base Position} - (\text{Referral 
 5. **Referrer Promotion**:
    - Increments referrer's `referralCount` by 1.
    - Recalculates referrer's `currentPosition` using `calculatePosition(basePosition, referralCount)`.
-   - Sends an asynchronous rank-up notification email (`referralEmail.js`).
-6. **Welcome Email**: Sends confirmation email with queue position and unique invite link (`welcomeEmail.js`).
+   - Sends an asynchronous rank-up notification email (`rankUpEmail.js`).
+6. **Welcome Email**: Sends confirmation email with queue position and unique invite link (`confirmationEmail.js`).
 
 ---
 
@@ -237,36 +238,36 @@ $$\text{Current Position} = \max\left(1, \text{Base Position} - (\text{Referral 
 ### Public Routes (`/api/w`)
 | Method | Endpoint | Description | Rate Limit |
 | :--- | :--- | :--- | :---: |
-| `GET` | `/api/w/:slug` | Fetch public waitlist details and styling | 100 / 15m |
-| `POST` | `/api/w/:slug/signup` | Join waitlist (accepts `email`, optional `ref`) | **5 / 15m** |
-| `GET` | `/api/w/:slug/position` | Check queue rank by `?ref=CODE` or `?email=EMAIL` | 100 / 15m |
-| `GET` | `/api/w/:slug/leaderboard` | Top 10 referrers with anonymized emails | 100 / 15m |
-| `GET` | `/api/w/:slug/activity` | Recent 10 signups with masked emails | 100 / 15m |
-| `POST` | `/api/w/:slug/visit` | Record unique visit (30-min deduplication) | 100 / 15m |
+| `GET` | `/api/w/:slug` | Fetch public waitlist details and styling | Not currently limited |
+| `POST` | `/api/w/:slug/signup` | Join waitlist (accepts `email`, optional `ref`) | **5 / 5m** |
+| `GET` | `/api/w/:slug/position` | Check queue rank by `?ref=CODE` or `?email=EMAIL` | Not currently limited |
+| `GET` | `/api/w/:slug/leaderboard` | Top 10 referrers with anonymized emails | Not currently limited |
+| `GET` | `/api/w/:slug/activity` | Recent 8 signups with masked emails | Not currently limited |
+| `POST` | `/api/w/:slug/visit` | Record unique visit (30-min deduplication) | Not currently limited |
 
 ### Authentication Routes (`/api/auth`)
 | Method | Endpoint | Description | Auth Required | Rate Limit |
 | :--- | :--- | :--- | :---: | :---: |
-| `POST` | `/api/auth/register` | Register new founder with email & password | No | **10 / 15m** |
-| `POST` | `/api/auth/login` | Authenticate founder with email & password | No | **10 / 15m** |
-| `POST` | `/api/auth/google` | Authenticate founder via Google ID token | No | **10 / 15m** |
+| `POST` | `/api/auth/register` | Register new founder with email & password | No | **20 / 15m** |
+| `POST` | `/api/auth/login` | Authenticate founder with email & password | No | **20 / 15m** |
+| `POST` | `/api/auth/google` | Authenticate founder via Google ID token | No | **20 / 15m** |
 | `POST` | `/api/auth/logout` | Clear authentication cookie | No | — |
 | `GET` | `/api/auth/me` | Return active founder session | **JWT** | — |
 | `PATCH`| `/api/auth/profile` | Update founder name and email | **JWT** | — |
 | `PATCH`| `/api/auth/password` | Change password (requires current password) | **JWT** | — |
-| `POST` | `/api/auth/forgot-password`| Request password reset link | No | **10 / 15m** |
-| `POST` | `/api/auth/reset-password` | Submit new password with reset token | No | **10 / 15m** |
+| `POST` | `/api/auth/forgot-password`| Request password reset link | No | **20 / 15m** |
+| `POST` | `/api/auth/reset-password` | Submit new password with reset token | No | **20 / 15m** |
 
 ### Founder Waitlist Management (`/api/waitlists`)
 | Method | Endpoint | Description | Auth Required |
 | :--- | :--- | :--- | :---: |
-| `POST` | `/api/waitlists` | Create new campaign (enforces plan tier limits) | **JWT** |
+| `POST` | `/api/waitlists` | Create new campaign | **JWT** |
 | `GET` | `/api/waitlists` | List all waitlists owned by authenticated founder | **JWT** |
 | `GET` | `/api/waitlists/:id` | Get configuration for a specific waitlist | **JWT** |
 | `PATCH`| `/api/waitlists/:id` | Update branding, copy, features, and rewards | **JWT** |
 | `GET` | `/api/waitlists/:id/stats` | Analytics: visitors, signups, conversion, chart | **JWT** |
 | `GET` | `/api/waitlists/:id/funnel`| Stage conversion funnel & referral breakdown | **JWT** |
-| `GET` | `/api/waitlists/:id/export`| Export subscribers to CSV (paid plans only) | **JWT** |
+| `GET` | `/api/waitlists/:id/export`| Export subscribers to CSV (campaign owner) | **JWT** |
 | `PATCH`| `/api/waitlists/:id/signups/:signupId/position` | Manual position override | **JWT** |
 | `POST` | `/api/waitlists/:id/signups/batch-invite` | Batch invite subscribers and dispatch emails | **JWT** |
 
@@ -281,26 +282,20 @@ $$\text{Current Position} = \max\left(1, \text{Base Position} - (\text{Referral 
 ## Email & Notification Services
 
 Transactional emails are dispatched using **Nodemailer** with modular HTML templates (`server/templates/`):
-- `welcomeEmail.js`: Sent immediately upon joining, including current position and referral link.
-- `referralEmail.js`: Sent to referrers when an invited friend joins, displaying their updated rank.
+- `confirmationEmail.js`: Sent immediately upon joining, including current position and referral link.
+- `rankUpEmail.js`: Sent to referrers when an invited friend joins, displaying their updated rank.
 - `invitedEmail.js`: Sent when an admin issues a batch invite, including the founder's custom `thankYouMessage`.
 - `passwordResetEmail.js`: Sent on password reset requests with a secure reset link.
 
-*Note: In development and test environments without SMTP credentials, email sending is safely mocked to prevent execution errors.*
+Tests that exercise email flows mock delivery. Runtime delivery uses Nodemailer; failures are logged without retries.
 
 ---
 
 ## Payment Integration (Lemon Squeezy)
 
 - **Checkout**: Generates hosted checkout URLs using Lemon Squeezy API v1 with custom passthrough data (`founder_id`).
-- **Webhook Verification**: Verifies incoming `x-signature` headers against raw request body using HMAC SHA-256:
-  ```javascript
-  const hmac = crypto.createHmac("sha256", process.env.LEMONSQUEEZY_WEBHOOK_SECRET);
-  const digest = Buffer.from(hmac.update(req.rawBody).digest("hex"), "utf8");
-  const signature = Buffer.from(req.get("X-Signature") || "", "utf8");
-  if (!crypto.timingSafeEqual(digest, signature)) { ... }
-  ```
-- **Lifecycle Events**: Handles `subscription_created`, `subscription_updated`, `subscription_cancelled`, `subscription_resumed`, and `subscription_expired` to automatically transition founder plan tiers (`free`, `starter`, `pro`, `agency`).
+- **Webhook Verification**: Checks HMAC SHA-256 over the raw JSON request body. Timing-safe comparison is planned.
+- **Lifecycle Events**: Currently processes `subscription_created` and `subscription_updated`, including active, cancelled, and expired statuses. Dedicated lifecycle handling and event ordering protection are planned.
 
 ---
 
@@ -325,17 +320,17 @@ npm test
 npm run lint
 ```
 
-### Test Suites (14 Suites, 68 Tests)
+### Test Suites (14 suites, 68 tests verified in Build 1)
 - `adminControls.test.js`: Position override validation, unowned resource 404 guards, batch invite execution.
 - `auth.test.js`: Registration, login, duplicate email rejection, session verification.
 - `calculatePosition.test.js`: Unit tests for mathematical referral queue promotion formula.
 - `docs.test.js`: OpenAPI documentation route verification.
-- `export.test.js`: CSV formatting, RFC 4180 escaping, plan-gating, unowned waitlist security.
+- `export.test.js`: CSV formatting, RFC 4180 escaping, and unowned waitlist security.
 - `funnel.test.js`: Conversion funnel metrics, zero-traffic edge cases, divide-by-zero prevention.
 - `generateRefCode.test.js`: Unit tests for referral code length and uniqueness.
 - `googleAuth.test.js`: Google ID token verification, account linking, unverified email rejection.
 - `passwordReset.test.js`: Non-enumerating token request, SHA-256 hashing, token expiry, single-use invalidation.
-- `payments.test.js`: Webhook HMAC signature verification, checkout URL generation, plan updates.
+- `payments.test.js`: Missing checkout configuration, webhook HMAC signature verification, and plan updates.
 - `profile.test.js`: Profile name/email updates, duplicate collision checks, password updates.
 - `signup.test.js`: Public join, anti-gaming checks, disposable email blocking, referral attribution.
 - `validateEnv.test.js`: Environment startup validation and soft payment warnings.
@@ -383,7 +378,7 @@ LEMONSQUEEZY_AGENCY_VARIANT_ID=variant_agency
 ## Local Development Setup
 
 ### Prerequisites
-- Node.js >= 18.0.0
+- Node.js 22 >= 22.13.0 (see `.nvmrc`)
 - MongoDB instance (local or MongoDB Atlas)
 
 ### Setup
@@ -408,7 +403,7 @@ The API will listen at `http://localhost:5000`. OpenAPI documentation is availab
 ## CI/CD Pipeline
 
 Both frontend and backend include automated GitHub Actions workflows (`.github/workflows/ci.yml`) that execute on every push and pull request:
-1. Sets up Node.js 18.x and 20.x test matrix.
+1. Sets up Node.js 22 on pushes to `main` and `feature/**`, and pull requests to `main`.
 2. Caches `npm` dependencies.
 3. Executes ESLint (`npm run lint`).
 4. Executes complete test suites (`npm test`).

@@ -6,7 +6,7 @@ const helmet = require("helmet");
 const cookieParser = require("cookie-parser");
 const swaggerUi = require("swagger-ui-express");
 const YAML = require("yamljs");
-require("dotenv").config();
+if (process.env.NODE_ENV !== "test") require("dotenv").config();
 
 const validateEnv = require("./utils/validateEnv");
 
