@@ -1,9 +1,12 @@
+const { effectivePlan } = require("../services/entitlements");
 const crypto = require("crypto");
+const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const { OAuth2Client } = require("google-auth-library");
 const Founder = require("../models/Founder");
 const generateToken = require("../utils/generateToken");
-const sendEmail = require("../utils/sendEmail");
+const mongoose = require("mongoose");
+const { recordEmail, dispatchInline } = require("../services/emailOutbox");
 const passwordResetEmail = require("../templates/passwordResetEmail");
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -42,7 +45,7 @@ async function register(req, res) {
       authProvider: "local",
     });
 
-    const token = generateToken(founder._id);
+    const token = generateToken(founder._id, founder.sessionVersion);
 
     res.cookie("token", token, getCookieOptions());
 
@@ -52,7 +55,7 @@ async function register(req, res) {
         id: founder._id,
         name: founder.name,
         email: founder.email,
-        plan: founder.plan,
+        plan: effectivePlan(founder),
         customerPortalUrl: founder.customerPortalUrl,
       },
     });
@@ -85,7 +88,7 @@ async function login(req, res) {
       return res.status(401).json({ error: "Invalid email or password" });
     }
 
-    const token = generateToken(founder._id);
+    const token = generateToken(founder._id, founder.sessionVersion);
 
     res.cookie("token", token, getCookieOptions());
 
@@ -95,7 +98,7 @@ async function login(req, res) {
         id: founder._id,
         name: founder.name,
         email: founder.email,
-        plan: founder.plan,
+        plan: effectivePlan(founder),
         customerPortalUrl: founder.customerPortalUrl,
       },
     });
@@ -150,7 +153,7 @@ async function googleLogin(req, res) {
       }
     }
 
-    const token = generateToken(founder._id);
+    const token = generateToken(founder._id, founder.sessionVersion);
     res.cookie("token", token, getCookieOptions());
 
     res.json({
@@ -159,7 +162,7 @@ async function googleLogin(req, res) {
         id: founder._id,
         name: founder.name,
         email: founder.email,
-        plan: founder.plan,
+        plan: effectivePlan(founder),
         customerPortalUrl: founder.customerPortalUrl,
       },
     });
@@ -173,6 +176,17 @@ async function googleLogin(req, res) {
 
 // POST /api/auth/logout
 async function logout(req, res) {
+  const token = req.cookies?.token || req.get("Authorization")?.replace(/^Bearer /, "");
+  let identity;
+  try { if (token) identity = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ["HS256"] }); }
+  catch { /* An invalid session can still clear its cookie. */ }
+  if (identity) {
+    try {
+      await Founder.updateOne({ _id: identity.id, $or: [
+        { sessionVersion: identity.sessionVersion || 0 }, ...(identity.sessionVersion ? [] : [{ sessionVersion: { $exists: false } }]),
+      ] }, { $inc: { sessionVersion: 1 } });
+    } catch { return res.status(503).json({ error: "Unable to revoke your session. Please try again." }); }
+  }
   const isProd = process.env.NODE_ENV === "production";
   res.clearCookie("token", {
     httpOnly: true,
@@ -189,7 +203,7 @@ async function getMe(req, res) {
       id: req.founder._id,
       name: req.founder.name,
       email: req.founder.email,
-      plan: req.founder.plan,
+      plan: effectivePlan(req.founder),
       customerPortalUrl: req.founder.customerPortalUrl,
     },
   });
@@ -223,7 +237,7 @@ async function updateProfile(req, res) {
         id: updatedFounder._id,
         name: updatedFounder.name,
         email: updatedFounder.email,
-        plan: updatedFounder.plan,
+        plan: effectivePlan(updatedFounder),
         customerPortalUrl: updatedFounder.customerPortalUrl,
       },
     });
@@ -257,8 +271,12 @@ async function changePassword(req, res) {
       return res.status(401).json({ error: "Incorrect current password" });
     }
 
-    founder.password = await bcrypt.hash(newPassword, 10);
-    await founder.save();
+    const password = await bcrypt.hash(newPassword, 10);
+    const updated = await Founder.findOneAndUpdate({ _id: founderId, password: founder.password }, {
+      $set: { password, resetPasswordTokenHash: null, resetPasswordExpires: null }, $inc: { sessionVersion: 1 },
+    }, { returnDocument: "after" });
+    if (!updated) return res.status(409).json({ error: "Account changed. Please sign in again." });
+    res.cookie("token", generateToken(updated._id, updated.sessionVersion), getCookieOptions());
 
     res.json({ message: "Password updated successfully" });
   } catch (err) {
@@ -289,18 +307,16 @@ async function requestPasswordReset(req, res) {
     const rawToken = crypto.randomBytes(32).toString("hex");
     const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
 
-    founder.resetPasswordTokenHash = tokenHash;
-    founder.resetPasswordExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
-    await founder.save();
-
-    const clientUrl = process.env.CLIENT_URL || "http://localhost:5173";
-    const resetUrl = `${clientUrl}/reset-password?token=${rawToken}`;
-
-    await sendEmail({
-      to: founder.email,
-      subject: "Reset your LaunchQueue password",
-      html: passwordResetEmail({ resetUrl }),
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+    const resetUrl = `${process.env.CLIENT_URL}/reset-password?token=${rawToken}`;
+    const emailJob = await mongoose.connection.transaction(async (session) => {
+      await Founder.updateOne({ _id: founder._id }, { $set: {
+        resetPasswordTokenHash: tokenHash, resetPasswordExpires: expiresAt,
+      } }, { session });
+      return recordEmail({ dedupeKey: `reset-${founder._id}-${tokenHash}`, kind: "password-reset", expiresAt,
+        to: founder.email, subject: "Reset your LaunchQueue password", html: passwordResetEmail({ resetUrl }) }, session);
     });
+    await dispatchInline([emailJob]);
 
     res.status(200).json(genericResponse);
   } catch (err) {
@@ -322,20 +338,12 @@ async function resetPassword(req, res) {
 
     const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
 
-    const founder = await Founder.findOne({
-      resetPasswordTokenHash: tokenHash,
-      resetPasswordExpires: { $gt: new Date() },
-    });
-
-    if (!founder) {
-      return res.status(400).json({ error: "Invalid or expired reset link." });
-    }
-
     const hashedPassword = await bcrypt.hash(newPassword, 10);
-    founder.password = hashedPassword;
-    founder.resetPasswordTokenHash = null;
-    founder.resetPasswordExpires = null;
-    await founder.save();
+    const founder = await Founder.findOneAndUpdate({
+      resetPasswordTokenHash: tokenHash, resetPasswordExpires: { $gt: new Date() },
+    }, { $set: { password: hashedPassword, resetPasswordTokenHash: null, resetPasswordExpires: null },
+      $inc: { sessionVersion: 1 } }, { returnDocument: "after" });
+    if (!founder) return res.status(400).json({ error: "Invalid or expired reset link." });
 
     res.status(200).json({
       message: "Password has been successfully reset. You can now log in.",

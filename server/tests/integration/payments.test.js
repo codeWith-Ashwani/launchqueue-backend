@@ -72,8 +72,10 @@ describe("Lemon Squeezy Webhook & Payment Configuration Tests", () => {
       },
       data: {
         id: "sub_12345678",
+        type: "subscriptions",
         attributes: {
           status: "active",
+          updated_at: new Date().toISOString(),
           variant_id: "variant_pro_999",
           urls: {
             customer_portal: "https://launchqueue.lemonsqueezy.com/billing/sub_12345678",

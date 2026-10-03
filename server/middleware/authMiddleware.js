@@ -14,10 +14,10 @@ async function authMiddleware(req, res, next) {
       return res.status(401).json({ error: "No token provided" });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ["HS256"] });
 
     const founder = await Founder.findById(decoded.id).select("-password");
-    if (!founder) {
+    if (!founder || (decoded.sessionVersion || 0) !== (founder.sessionVersion || 0)) {
       return res.status(401).json({ error: "Founder no longer exists" });
     }
 
@@ -27,7 +27,8 @@ async function authMiddleware(req, res, next) {
     if (process.env.NODE_ENV !== "production") {
       console.error("AuthMiddleware error:", err.message);
     }
-    res.status(401).json({ error: "Invalid or expired token" });
+    const invalid = err instanceof jwt.JsonWebTokenError || err.name === "CastError";
+    res.status(invalid ? 401 : 503).json({ error: invalid ? "Invalid or expired token" : "Authentication temporarily unavailable" });
   }
 }
 

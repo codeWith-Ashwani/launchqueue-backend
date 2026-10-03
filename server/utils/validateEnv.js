@@ -1,4 +1,11 @@
 function validateEnv() {
+  require("../config/redis").validateRedisUrl(process.env.REDIS_URL);
+  if (process.env.EMAIL_DELIVERY_MODE && !["inline", "queue"].includes(process.env.EMAIL_DELIVERY_MODE)) {
+    throw new Error("EMAIL_DELIVERY_MODE must be inline or queue");
+  }
+  if (process.env.TRUST_PROXY_HOPS && !/^[0-5]$/.test(process.env.TRUST_PROXY_HOPS)) {
+    throw new Error("TRUST_PROXY_HOPS must be an integer from 0 to 5");
+  }
   const requiredVars = [
     "MONGO_URI",
     "JWT_SECRET",

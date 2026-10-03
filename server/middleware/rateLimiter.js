@@ -1,23 +1,21 @@
-const rateLimit = require("express-rate-limit");
-
-// Public signup rate limiter: max 5 requests per 5 minutes per IP
-const signupLimiter = rateLimit({
-  windowMs: 5 * 60 * 1000, // 5 minutes
-  max: 5,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Too many signups from this device. Please try again in a few minutes." },
-  skip: () => process.env.NODE_ENV === "test",
-});
-
-// Auth brute-force protection limiter: max 20 requests per 15 minutes per IP
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Too many authentication attempts. Please try again in a few minutes." },
-  skip: () => process.env.NODE_ENV === "test",
-});
-
-module.exports = { signupLimiter, authLimiter };
+const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
+const RedisRateStore = require("../services/redisRateStore");
+function createLimiter(prefix, windowMs, limit, { client, skipTests = true } = {}) {
+  return rateLimit({
+    windowMs, limit, standardHeaders: "draft-8", legacyHeaders: false,
+    keyGenerator: (req) => ipKeyGenerator(req.ip),
+    ...(client || process.env.REDIS_URL ? { store: new RedisRateStore(prefix, client) } : {}),
+    passOnStoreError: false,
+    message: { error: "Too many requests. Please try again later." },
+    skip: () => skipTests && process.env.NODE_ENV === "test",
+  });
+}
+module.exports = {
+  createLimiter,
+  signupLimiter: createLimiter("signup", 300000, 5),
+  authLimiter: createLimiter("auth", 900000, 20),
+  recoveryLimiter: createLimiter("recovery", 300000, 5),
+  verificationLimiter: createLimiter("verification", 300000, 20),
+  statusLimiter: createLimiter("status", 60000, 60),
+  visitLimiter: createLimiter("visit", 60000, 30),
+};

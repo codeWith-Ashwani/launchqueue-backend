@@ -177,7 +177,7 @@ Represents lightweight unique traffic events for conversion analytics.
 ## Authentication & Security
 
 ### Token Architecture
-- **JWT Signing**: Signs payload `{ id: founder._id }` using `JWT_SECRET` with a 30-day expiry (the cookie lasts 7 days).
+- **JWT Signing**: Signs payload `{ id: founder._id, sessionVersion }` using `JWT_SECRET` with a 7-day expiry. Tokens include a session version checked against the founder record. Password changes, password resets, and authenticated logout revoke prior sessions. A password change refreshes the initiating browser cookie.
 - **Dual Delivery**: Delivered via `httpOnly` cookie (`token`) and returned in the JSON response body.
 - **Cookie Security Options**:
   ```javascript
@@ -190,7 +190,7 @@ Represents lightweight unique traffic events for conversion analytics.
   ```
 
 ### Password Reset Flow (Security-Hardened)
-- Never stores plaintext or reversible reset tokens in the database.
+- Stores the reset token hash on the founder. Email outbox payloads containing reset links are encrypted with AES-256-GCM.
 - A cryptographically random 32-byte token (`crypto.randomBytes(32).toString("hex")`) is generated.
 - The SHA-256 hash of this token is stored in `resetPasswordTokenHash` alongside a 1-hour expiration date.
 - The reset email link contains the unhashed raw token (`/reset-password?token=...`).
@@ -212,22 +212,19 @@ Represents lightweight unique traffic events for conversion analytics.
 
 ## Core Referral Engine Logic
 
-Build 2 replaces displayed score values with contiguous ranks derived by `server/services/ranking.js`. Queue priority is `basePosition - referralCount * 5 + priorityOffset`, ordered by score, original sequence, then document ID. Signup sequence allocation and referral attribution commit in one transaction; retries cannot award the same signup twice. The legacy formula below remains only for compatibility with the stored `currentPosition` field. Manual position edits reorder neighbours through priority offsets. MongoDB 5+ running as a replica set is required. See [build progress and deployment prerequisites](docs/BUILD_PROGRESS.md).
+Build 2 replaces displayed score values with contiguous ranks derived by `server/services/ranking.js`. Queue priority is `basePosition - referralCount * 5 + priorityOffset`, ordered by score, original sequence, then document ID. Signup sequence allocation and referral attribution commit in one transaction; retries cannot award the same signup twice. The legacy formula below remains only for compatibility with the stored `currentPosition` field. Manual position edits reorder neighbours through priority offsets. MongoDB 5+ running as a replica set is required. Detailed build notes stay in local, gitignored docs/.
 
 The queue calculation is isolated in `server/utils/calculatePosition.js`:
 
 $$\text{Current Position} = \max\left(1, \text{Base Position} - (\text{Referral Count} \times 5)\right)$$
 
 ### Join & Attribution Lifecycle
-1. **Deduplication Check**: Queries `{ waitlistId, email }`. If already present, returns the existing record (`alreadyJoined: true`) without awarding duplicate referral credit.
-2. **Disposable Domain Check**: Queries `isDisposableEmail(email)` against a blacklist of ~3,000 temporary mail providers.
-3. **Self-Referral Guard**: If `referredBy === subscriber.refCode`, referral attribution is rejected.
-4. **Base Rank Allocation**: Calculates `basePosition = totalSignups + 1`.
-5. **Referrer Promotion**:
-   - Increments referrer's `referralCount` by 1.
-   - Recalculates referrer's `currentPosition` using `calculatePosition(basePosition, referralCount)`.
-   - Sends an asynchronous rank-up notification email (`rankUpEmail.js`).
-6. **Welcome Email**: Sends confirmation email with queue position and unique invite link (`confirmationEmail.js`).
+1. Reject disposable email domains and paused campaigns.
+2. Allocate a monotonic sequence and create a pending subscriber with a verification email in one MongoDB transaction. Duplicate joins request a private status link instead of exposing subscriber details.
+3. A 24-hour, campaign-scoped verification link proves mailbox ownership. Verification, referral credit, and confirmation notifications commit together. Repeated concurrent verification requests award the referral once. Pending records do not affect ranks or receive invitations. Existing records retain legacy access without claiming they were verified.
+4. Derive contiguous ranks by score, sequence, and document ID.
+4. Store confirmation and referral emails in the same transaction as the business change. A rollback also removes the notification.
+5. Read private subscriber status through a signed, campaign-scoped token. Status-link recovery responds generically for known and unknown email addresses.
 
 ---
 
@@ -236,6 +233,8 @@ $$\text{Current Position} = \max\left(1, \text{Base Position} - (\text{Referral 
 > Complete documentation is available via the Swagger UI at `/api/docs`.
 
 ### Public Routes (`/api/w`)
+
+Build 3 requires `X-Subscriber-Token` for `/api/w/:slug/position`; the old email/referral query lookup is disabled. `POST /api/w/:slug/status-link` accepts an email and returns the same 202 response whether it exists or not. Recovery emails contain a seven-day private link in the URL fragment. Repeat signup returns 202 recovery instructions without subscriber data. Deploy the matching frontend update before advertising status recovery.
 | Method | Endpoint | Description | Rate Limit |
 | :--- | :--- | :--- | :---: |
 | `GET` | `/api/w/:slug` | Fetch public waitlist details and styling | Not currently limited |
@@ -282,29 +281,34 @@ $$\text{Current Position} = \max\left(1, \text{Base Position} - (\text{Referral 
 ## Email & Notification Services
 
 Transactional emails are dispatched using **Nodemailer** with modular HTML templates (`server/templates/`):
-- `confirmationEmail.js`: Sent immediately upon joining, including current position and referral link.
-- `rankUpEmail.js`: Sent to referrers when an invited friend joins, displaying their updated rank.
+- `confirmationEmail.js`: Sent after email verification, including the current rank and referral link.
+- `rankUpEmail.js`: Sent to referrers when a referred friend verifies their email, displaying their updated rank.
 - `invitedEmail.js`: Sent when an admin issues a batch invite, including the founder's custom `thankYouMessage`.
 - `passwordResetEmail.js`: Sent on password reset requests with a secure reset link.
 
-Tests that exercise email flows mock delivery. Runtime delivery uses Nodemailer; failures are logged without retries.
+Email intentions are stored in a MongoDB outbox with encrypted payloads. `EMAIL_DELIVERY_MODE=queue` keeps SMTP work outside API requests; a persistent BullMQ worker dispatches pending intentions to Redis and retries transient failures up to five times with exponential backoff. Outbox records rebuild lost Redis jobs. An invitation becomes `invited` only after a successful delivery receipt; queued and failed states appear in the dashboard, and founders can retry failed invitations.
+
+Inline mode preserves local development compatibility and records delivery failures. Delivery is **at least once**: a process crash after SMTP accepts the email but before the MongoDB receipt can cause a duplicate. A stable Message-ID helps providers correlate retries but does not guarantee deduplication. Tests mock SMTP and exercise queue processing against a real Redis instance when `TEST_REDIS_URL` is set.
 
 ---
 
 ## Payment Integration (Lemon Squeezy)
 
 - **Checkout**: Generates hosted checkout URLs using Lemon Squeezy API v1 with custom passthrough data (`founder_id`).
-- **Webhook Verification**: Checks HMAC SHA-256 over the raw JSON request body. Timing-safe comparison is planned.
-- **Lifecycle Events**: Currently processes `subscription_created` and `subscription_updated`, including active, cancelled, and expired statuses. Dedicated lifecycle handling and event ordering protection are planned.
+- **Webhook Verification**: Checks HMAC SHA-256 over the raw JSON body with a length-checked, timing-safe comparison. Signed payloads are validated before processing.
+- **Lifecycle Events**: Processes subscription creation, updates, cancellation, resumption, expiry, pause and unpause. MongoDB receipts deduplicate retries; provider update timestamps prevent older events from overwriting newer states. Past-due and paused subscriptions retain access; unpaid and expired subscriptions lose access. Cancellation retains access until `ends_at`, enforced on reads even if an expiry webhook is delayed. Old subscription IDs and mismatched test-mode events are ignored. Portal links are refreshed from the provider because signed links expire.
 
 ---
 
 ## Analytics & Aggregation Pipeline
 
-- **Conversion Rate**: Calculated from unique page views (`PageView` collection) and signups (`Signup` collection):
-  $$\text{Conversion Rate} = \frac{\text{Total Signups}}{\max(\text{Unique Visitors}, \text{Total Signups})} \times 100$$
-- **Funnel Breakdown**: `GET /api/waitlists/:id/funnel` partitions signups into Direct (`referredBy: null`) vs. Referred (`referredBy: { $ne: null }`).
-- **Time-Series Signups**: MongoDB Aggregation Pipeline groups signups over the last 30 days by day (`$dateToString: { format: "%Y-%m-%d" }`).
+Subscriber roster responses are paginated (`page=1`, `limit=50`, maximum 100). Counts and daily buckets are aggregated in MongoDB; charts fill missing days across 30 UTC dates. Unique visitors are counted in MongoDB instead of loading visitor IDs into JavaScript. Traffic capture records one event per visitor per UTC half-hour bucket with a compound unique index, including concurrent requests.
+
+`conversionRate` is the **verified signup/unique visitor ratio**, displayed with that label. It is 0 when no visitors were tracked and can exceed 100% if visitor tracking is incomplete; it is not a measured cohort conversion probability. Pending signups appear separately in stats and do not inflate the verified ratio. Date-filtered referral reports count referred enrollments during the selected period, including referrals credited to older subscribers.
+
+CSV exports stream aggregate cursor batches with backpressure and close on disconnect. Fields beginning with spreadsheet formula characters are neutralized before RFC 4180 escaping. Campaign and date indexes support the aggregation filters.
+
+The public leaderboard uses an optional 10-second Redis cache containing masked identities only. Cache keys include the campaign's signup sequence and queue version, so queue mutations invalidate results without scans. Cache failures fall back to MongoDB; subscriber status and founder rosters are never cached publicly.
 
 ---
 
@@ -320,7 +324,7 @@ npm test
 npm run lint
 ```
 
-### Test Suites (14 suites, 68 tests verified in Build 1)
+### Test Suites (28 suites, 119 tests verified in Build 9)
 - `adminControls.test.js`: Position override validation, unowned resource 404 guards, batch invite execution.
 - `auth.test.js`: Registration, login, duplicate email rejection, session verification.
 - `calculatePosition.test.js`: Unit tests for mathematical referral queue promotion formula.
@@ -339,6 +343,8 @@ npm run lint
 ---
 
 ## Environment Configuration
+
+Redis infrastructure is optional: set backend-only `REDIS_URL` to a `redis://` or `rediss://` connection. `/health` reports liveness; `/ready` reports MongoDB readiness and Redis availability. Detailed deployment and build notes stay in the local, gitignored `docs/` directory.
 
 Create a `.env` file in the `server/` root directory:
 
@@ -379,18 +385,19 @@ LEMONSQUEEZY_AGENCY_VARIANT_ID=variant_agency
 
 ### Prerequisites
 - Node.js 22 >= 22.13.0 (see `.nvmrc`)
-- MongoDB instance (local or MongoDB Atlas)
+- MongoDB 5+ replica set (MongoDB Atlas supports transactions)
+- Redis with `maxmemory-policy=noeviction` for queue mode
 
 ### Setup
 ```bash
 # 1. Navigate to backend directory
-cd server # or root of backend repo
+cd server
 
 # 2. Install dependencies
 npm install
 
 # 3. Configure environment file
-cp .env.example .env
+cp ../.env.example .env
 
 # 4. Start server in development mode (using nodemon)
 npm run dev
@@ -410,8 +417,34 @@ Both frontend and backend include automated GitHub Actions workflows (`.github/w
 
 ---
 
+## Render Email Worker Setup
+
+Keep the frontend on Vercel. The Render API and a separate persistent background worker use the same MongoDB replica set and Render Key Value instance. Set `EMAIL_DELIVERY_MODE=queue` on the API. Both processes need `MONGO_URI`, `REDIS_URL`, `JWT_SECRET`, `EMAIL_ENCRYPTION_KEY`, `CLIENT_URL`, and SMTP configuration. Use a stable encryption key; changing it makes existing outbox payloads unreadable.
+
+For the worker, set root directory `server`, build command `npm ci`, and start command `npm run worker`. Use the Redis internal URL and `noeviction` policy. Deploy and confirm the worker is connected before switching the API to queue mode. Provisioning these Render services is a separate deployment step and may require a paid plan.
+
 ## Known Limitations
 
-1. **Email Queueing**: Transactional emails are dispatched inline during request execution using `Promise.allSettled`. For high-volume production deployments, offloading email delivery to a persistent message queue (e.g., BullMQ with Redis) would improve latency and retry resilience.
-2. **Referral Position Reindexing**: While the current position formula computes dynamically per user ($\mathcal{O}(1)$), bulk global reindexing of all subsequent waitlist entries on each join is not performed to avoid quadratic write locks on large collections.
-3. **Database Transactions**: Mongoose operations currently run as single-document operations. Full ACID multi-document transactions would provide stricter guarantees during high-concurrency referral spikes on replica set clusters.
+- Queue delivery requires a running worker; API requests can safely persist notifications during Redis outages, but delivery waits for recovery.
+- SMTP receipt means the provider accepted the message, not that it reached the subscriber's inbox.
+- Referral ranks aggregate across the campaign and can use MongoDB disk spill. API responses and export application memory are bounded, but ranking still requires campaign-wide database work.
+- Browser end-to-end coverage is planned in the final build.
+
+## Shared Request Protection
+
+When `REDIS_URL` is configured, authentication, signup, recovery, verification, status, and visitor tracking use Redis counters shared by every API instance. Atomic increment plus expiry prevents lost counter updates; IP identities are HMAC-hashed before storage. Limits have separate budgets so joining does not consume verification capacity. Redis outages return 503 on protected requests instead of allowing unbounded attempts. Without Redis, limits are local to one process.
+
+`TRUST_PROXY_HOPS` defaults to 0. Set an explicit hop count only after checking the actual Render proxy path; never use unrestricted proxy trust. See [Express proxy guidance](https://expressjs.com/en/guide/behind-proxies/).
+
+Unsafe requests to founder APIs reject untrusted browser origins. Cookie-based mutations also require `X-LaunchQueue-Request: 1`; the frontend Axios client adds this header. API clients using bearer tokens can continue without this browser header. The provider-signed billing webhook is exempt. Request bodies, strings, batch sizes, resource IDs, and bcrypt password byte lengths are bounded. Reset-token consumption is atomic under concurrent submissions.
+
+## Enforced Plan Limits
+
+| Plan | Campaigns | Signups per campaign | CSV export |
+| --- | ---: | ---: | --- |
+| Free | 1 | 500 | No |
+| Starter | 3 | 5,000 | Yes |
+| Pro | 10 | 25,000 | Yes |
+| Agency | Unlimited | Unlimited | Yes |
+
+Creation and signup limits are checked inside MongoDB transactions, including pending signups. Existing data is preserved after downgrades; capacity checks block new additions. CSV checks campaign ownership before plan access. Pricing lists implemented features only. Subscribe the provider webhook to `subscription_created` and `subscription_updated` at minimum. Set `LEMONSQUEEZY_TEST_MODE=true` only for a test-mode integration.

@@ -5,10 +5,10 @@ const registerSchema = z.object({
     .string({ required_error: "Email is required", invalid_type_error: "Email must be a string" })
     .trim()
     .toLowerCase()
-    .email("Please enter a valid email address"),
+    .max(254).email("Please enter a valid email address"),
   password: z
     .string({ required_error: "Password is required", invalid_type_error: "Password must be a string" })
-    .min(6, "Password must be at least 6 characters"),
+    .min(6, "Password must be at least 6 characters").refine((v) => Buffer.byteLength(v, "utf8") <= 72, "Password cannot exceed 72 bytes"),
 });
 
 const loginSchema = z.object({
@@ -16,16 +16,16 @@ const loginSchema = z.object({
     .string({ required_error: "Email is required", invalid_type_error: "Email must be a string" })
     .trim()
     .toLowerCase()
-    .email("Please enter a valid email address"),
+    .max(254).email("Please enter a valid email address"),
   password: z
     .string({ required_error: "Password is required", invalid_type_error: "Password must be a string" })
-    .min(1, "Password is required"),
+    .min(1, "Password is required").max(256),
 });
 
 const updateProfileSchema = z
   .object({
     name: z.string().trim().max(100, "Name cannot exceed 100 characters").optional(),
-    email: z.string().trim().toLowerCase().email("Please enter a valid email address").optional(),
+    email: z.string().trim().toLowerCase().max(254).email("Please enter a valid email address").optional(),
   })
   .refine(
     (data) => data.name !== undefined || data.email !== undefined,
@@ -36,10 +36,10 @@ const changePasswordSchema = z
   .object({
     currentPassword: z
       .string({ required_error: "Current password is required", invalid_type_error: "Current password must be a string" })
-      .min(1, "Current password is required"),
+      .min(1, "Current password is required").max(256),
     newPassword: z
       .string({ required_error: "New password is required", invalid_type_error: "New password must be a string" })
-      .min(6, "New password must be at least 6 characters"),
+      .min(6, "New password must be at least 6 characters").refine((v) => Buffer.byteLength(v, "utf8") <= 72, "Password cannot exceed 72 bytes"),
   })
   .refine(
     (data) => data.newPassword !== data.currentPassword,
@@ -51,30 +51,30 @@ const requestPasswordResetSchema = z.object({
     .string({ required_error: "Email is required", invalid_type_error: "Email must be a string" })
     .trim()
     .toLowerCase()
-    .email("Please enter a valid email address"),
+    .max(254).email("Please enter a valid email address"),
 });
 
 const resetPasswordSchema = z.object({
   token: z
     .string({ required_error: "Reset token is required", invalid_type_error: "Reset token must be a string" })
-    .min(1, "Reset token is required"),
+    .min(1, "Reset token is required").max(128),
   newPassword: z
     .string({ required_error: "New password is required", invalid_type_error: "New password must be a string" })
-    .min(6, "New password must be at least 6 characters"),
+    .min(6, "New password must be at least 6 characters").refine((v) => Buffer.byteLength(v, "utf8") <= 72, "Password cannot exceed 72 bytes"),
 });
 
 const createWaitlistSchema = z.object({
   name: z
     .string({ required_error: "Waitlist name is required", invalid_type_error: "Waitlist name must be a string" })
     .trim()
-    .min(1, "Waitlist name is required"),
-  description: z.string().optional().default(""),
+    .min(1, "Waitlist name is required").max(100),
+  description: z.string().max(4000).optional().default(""),
 });
 
 const featureItemSchema = z.object({
-  icon: z.string().optional().default("✨"),
-  title: z.string({ required_error: "Feature title is required" }).min(1, "Feature title is required"),
-  description: z.string().optional().default(""),
+  icon: z.string().max(4000).optional().default("✨"),
+  title: z.string({ required_error: "Feature title is required" }).min(1, "Feature title is required").max(120),
+  description: z.string().max(4000).optional().default(""),
 });
 
 const milestoneItemSchema = z.object({
@@ -82,21 +82,21 @@ const milestoneItemSchema = z.object({
     .number({ required_error: "Referral count is required", invalid_type_error: "Referral count must be a number" })
     .int("Referral count must be an integer")
     .positive("Referral count must be greater than 0"),
-  reward: z.string({ required_error: "Reward is required" }).min(1, "Reward description is required"),
+  reward: z.string({ required_error: "Reward is required" }).min(1, "Reward description is required").max(200),
 });
 
 const updateWaitlistSchema = z.object({
-  name: z.string().trim().min(1, "Waitlist name cannot be empty").optional(),
-  description: z.string().optional(),
-  thankYouMessage: z.string().optional(),
+  name: z.string().trim().min(1, "Waitlist name cannot be empty").max(100).optional(),
+  description: z.string().max(4000).optional(),
+  thankYouMessage: z.string().max(4000).optional(),
   paused: z.boolean().optional(),
-  heroHeadline: z.string().optional(),
-  heroSubheadline: z.string().optional(),
-  heroImageUrl: z.string().optional(),
-  accentColor: z.string().optional(),
-  ctaText: z.string().optional(),
-  features: z.array(featureItemSchema).optional(),
-  milestones: z.array(milestoneItemSchema).optional(),
+  heroHeadline: z.string().max(4000).optional(),
+  heroSubheadline: z.string().max(4000).optional(),
+  heroImageUrl: z.string().max(4000).optional(),
+  accentColor: z.string().max(4000).optional(),
+  ctaText: z.string().max(4000).optional(),
+  features: z.array(featureItemSchema).max(20).optional(),
+  milestones: z.array(milestoneItemSchema).max(20).optional(),
 });
 
 const signupJoinSchema = z.object({
@@ -104,9 +104,10 @@ const signupJoinSchema = z.object({
     .string({ required_error: "Email is required", invalid_type_error: "Email must be a string" })
     .trim()
     .toLowerCase()
-    .email("Please enter a valid email address"),
-  ref: z.string().trim().optional(),
+    .max(254).email("Please enter a valid email address"),
+  ref: z.string().trim().max(32).optional(),
 });
+const verificationSchema = z.object({ token: z.string().min(1).max(2048) });
 
 const updatePositionSchema = z.object({
   currentPosition: z
@@ -117,11 +118,18 @@ const updatePositionSchema = z.object({
 
 const batchInviteSchema = z.object({
   signupIds: z
-    .array(z.string().min(1), { required_error: "signupIds array is required" })
-    .min(1, "At least one signup ID must be provided"),
+    .array(z.string().regex(/^[a-fA-F0-9]{24}$/, "Invalid signup ID"), { required_error: "signupIds array is required" })
+    .min(1, "At least one signup ID must be provided").max(100),
 });
 
+const visitSchema = z.object({ visitorId: z.string().trim().min(1).max(128) });
+const paginationSchema = z.object({ page: z.coerce.number().int().min(1).max(1000000).default(1), limit: z.coerce.number().int().min(1).max(100).default(50) });
+const funnelQuerySchema = z.object({ days: z.coerce.number().int().min(1).max(365).optional() });
+
 module.exports = {
+  visitSchema,
+  paginationSchema,
+  funnelQuerySchema,
   registerSchema,
   loginSchema,
   updateProfileSchema,
@@ -131,6 +139,7 @@ module.exports = {
   createWaitlistSchema,
   updateWaitlistSchema,
   signupJoinSchema,
+  verificationSchema,
   updatePositionSchema,
   batchInviteSchema,
 };

@@ -14,7 +14,16 @@ const validateEnv = require("./utils/validateEnv");
 validateEnv();
 
 const app = express();
+app.set("trust proxy", Number(process.env.TRUST_PROXY_HOPS || 0));
+const browserRequest = require("./middleware/browserRequest");
 const PORT = process.env.PORT || 5000;
+const { redisHealth, closeRedis } = require("./config/redis");
+
+app.get("/health", (_req, res) => res.json({ status: "alive" }));
+app.get("/ready", async (_req, res) => {
+  const database = mongoose.connection.readyState === 1;
+  res.status(database ? 200 : 503).json({ status: database ? "ready" : "unavailable", database, redis: await redisHealth() });
+});
 
 // Security headers with Helmet
 app.use(
@@ -33,7 +42,7 @@ app.use(
   express.raw({ type: "application/json" })
 );
 
-app.use(express.json());
+app.use(express.json({ limit: "32kb" }));
 app.use(express.static("public"));
 
 // Interactive Swagger UI API Documentation
@@ -48,7 +57,7 @@ app.get("/", (req, res) => {
 });
 
 const allowedOrigins = [
-  "http://localhost:5173",
+  ...(process.env.NODE_ENV === "production" ? [] : ["http://localhost:5173"]),
   process.env.CLIENT_URL,
 ].filter(Boolean);
 
@@ -68,9 +77,9 @@ const openCors = cors({
   credentials: true,
 });
 
-app.use("/api/auth", strictCors, require("./routes/auth"));
-app.use("/api/waitlists", strictCors, require("./routes/waitlists"));
-app.use("/api/payments", strictCors, require("./routes/payments"));
+app.use("/api/auth", browserRequest, strictCors, require("./routes/auth"));
+app.use("/api/waitlists", browserRequest, strictCors, require("./routes/waitlists"));
+app.use("/api/payments", (req, res, next) => req.path === "/webhook" ? next() : browserRequest(req, res, next), strictCors, require("./routes/payments"));
 app.use("/api/w", openCors, require("./routes/signups"));
 
 // Centralized error handler
@@ -91,10 +100,13 @@ if (require.main === module) {
     .then(() => {
       console.log("✅ MongoDB connected");
 
-      app.listen(PORT, () => {
+      const server = app.listen(PORT, () => {
         console.log(`✅ Server running on port ${PORT}`);
         console.log(`📚 Interactive API docs available at http://localhost:${PORT}/api/docs`);
       });
+      const shutdown = () => server.close(async () => { await closeRedis(); await mongoose.disconnect(); });
+      process.once("SIGTERM", shutdown);
+      process.once("SIGINT", shutdown);
     })
     .catch((err) => {
       console.error("❌ MongoDB connection failed:", err.message);

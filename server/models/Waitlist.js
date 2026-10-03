@@ -62,4 +62,5 @@ const waitlistSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
+waitlistSchema.index({ founderId: 1, createdAt: -1 });
 module.exports = mongoose.model("Waitlist", waitlistSchema);

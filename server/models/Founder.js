@@ -50,6 +50,11 @@ const founderSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    sessionVersion: { type: Number, default: 0 },
+    usageVersion: { type: Number, default: 0 },
+    subscriptionStatus: String,
+    subscriptionEndsAt: Date,
+    billingUpdatedAt: Date,
   },
   { timestamps: true }
 );

@@ -1,13 +1,18 @@
+const { once } = require("events");
+const Founder = require("../models/Founder");
+const { limitsFor, quotaError } = require("../services/entitlements");
 const mongoose = require("mongoose");
 const { rankedSignups } = require("../services/ranking");
 const Waitlist = require("../models/Waitlist");
 const Signup = require("../models/Signup");
-const sendEmail = require("../utils/sendEmail");
+const { recordEmail, dispatchInline } = require("../services/emailOutbox");
+const EmailOutbox = require("../models/EmailOutbox");
 const invitedEmail = require("../templates/invitedEmail");
 
 function escapeCsvField(val) {
   if (val === null || val === undefined) return "";
-  const str = String(val);
+  const raw = String(val);
+  const str = /^[\s]*[=+@-]/.test(raw) ? "'" + raw : raw;
   if (str.includes(",") || str.includes('"') || str.includes("\n") || str.includes("\r")) {
     return `"${str.replace(/"/g, '""')}"`;
   }
@@ -23,28 +28,23 @@ async function create(req, res) {
       return res.status(400).json({ error: "Waitlist name is required" });
     }
 
-    // generate a slug from the name: "RocketPay" -> "rocketpay"
-    let baseSlug = name.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-    let slug = baseSlug;
-    let suffix = 1;
-
-    // if the slug is taken, append a number until it's unique
-    while (await Waitlist.findOne({ slug })) {
-      slug = `${baseSlug}-${suffix}`;
-      suffix++;
-    }
-
-    const waitlist = await Waitlist.create({
-      founderId: req.founder._id,
-      name,
-      slug,
-      description: description || "",
+    const waitlist = await mongoose.connection.transaction(async (session) => {
+      const owner = await Founder.findOneAndUpdate({ _id: req.founder._id }, { $inc: { usageVersion: 1 } }, { session, returnDocument: "after" });
+      const limits = limitsFor(owner);
+      if (await Waitlist.countDocuments({ founderId: owner._id }).session(session) >= limits.campaigns) {
+        throw quotaError("Your plan's campaign limit has been reached. Upgrade to create another waitlist.");
+      }
+      const baseSlug = name.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "waitlist";
+      let slug = baseSlug; let suffix = 1;
+      while (await Waitlist.findOne({ slug }).session(session)) slug = `${baseSlug}-${suffix++}`;
+      const [created] = await Waitlist.create([{ founderId: owner._id, name, slug, description: description || "" }], { session });
+      return created;
     });
-
     res.status(201).json({ waitlist });
   } catch (err) {
     console.error("Waitlist create error:", err);
     res.status(err.status || 500).json({
+      ...(err.upgradeRequired ? { upgradeRequired: true } : {}),
       error: err.status ? err.message : process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
     });
   }
@@ -55,18 +55,15 @@ async function list(req, res) {
   try {
     const waitlists = await Waitlist.find({ founderId: req.founder._id }).sort({ createdAt: -1 });
 
-    // attach a signup count to each one
-    const withCounts = await Promise.all(
-      waitlists.map(async (w) => {
-        const count = await Signup.countDocuments({ waitlistId: w._id });
-        return { ...w.toObject(), signupCount: count };
-      })
-    );
-
+    const counts = await Signup.aggregate([{ $match: { waitlistId: { $in: waitlists.map((w) => w._id) } } },
+      { $group: { _id: "$waitlistId", count: { $sum: 1 } } }]);
+    const countMap = new Map(counts.map((entry) => [entry._id.toString(), entry.count]));
+    const withCounts = waitlists.map((w) => ({ ...w.toObject(), signupCount: countMap.get(w._id.toString()) || 0 }));
     res.json({ waitlists: withCounts });
   } catch (err) {
     console.error("Waitlist list error:", err);
     res.status(err.status || 500).json({
+      ...(err.upgradeRequired ? { upgradeRequired: true } : {}),
       error: err.status ? err.message : process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
     });
   }
@@ -83,6 +80,7 @@ async function getOne(req, res) {
   } catch (err) {
     console.error("Waitlist getOne error:", err);
     res.status(err.status || 500).json({
+      ...(err.upgradeRequired ? { upgradeRequired: true } : {}),
       error: err.status ? err.message : process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
     });
   }
@@ -114,6 +112,7 @@ async function update(req, res) {
   } catch (err) {
     console.error("Waitlist update error:", err);
     res.status(err.status || 500).json({
+      ...(err.upgradeRequired ? { upgradeRequired: true } : {}),
       error: err.status ? err.message : process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
     });
   }
@@ -131,31 +130,28 @@ async function exportSignups(req, res) {
       return res.status(404).json({ error: "Waitlist not found" });
     }
 
-    const signups = await rankedSignups(waitlist._id);
-
-    const header = "email,currentPosition,referralCount,referredBy,joinedAt\n";
-
-    const rows = signups
-      .map((s) => {
-        const email = escapeCsvField(s.email);
-        const currentPosition = escapeCsvField(s.currentPosition);
-        const referralCount = escapeCsvField(s.referralCount ?? 0);
-        const referredBy = escapeCsvField(s.referredBy ?? "");
-        const joinedAt = escapeCsvField(s.createdAt ? s.createdAt.toISOString() : "");
-        return `${email},${currentPosition},${referralCount},${referredBy},${joinedAt}`;
-      })
-      .join("\n");
-
-    res.setHeader("Content-Type", "text/csv");
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="${waitlist.slug || "waitlist"}-signups.csv"`
-    );
-
-    res.status(200).send(header + (rows.length > 0 ? rows + "\n" : ""));
+    if (!limitsFor(req.founder).csv) return res.status(403).json({ error: "CSV export requires a paid plan", upgradeRequired: true });
+    const cursor = rankedSignups(waitlist._id).cursor({ batchSize: 100 });
+    const cancellation = new AbortController();
+    const closed = () => { cancellation.abort(); };
+    res.once("close", closed);
+    try {
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", `attachment; filename="${waitlist.slug}-signups.csv"`);
+      res.write("email,currentPosition,referralCount,referredBy,joinedAt\n");
+      for await (const signup of cursor) {
+        if (res.destroyed) break;
+        const row = [signup.email, signup.currentPosition, signup.referralCount || 0, signup.referredBy,
+          signup.createdAt?.toISOString()].map(escapeCsvField).join(",") + "\n";
+        if (!res.write(row)) await once(res, "drain", { signal: cancellation.signal });
+      }
+      if (!res.destroyed) res.end();
+    } finally { res.removeListener("close", closed); await cursor.close(); }
   } catch (err) {
+    if (res.headersSent) { if (!res.destroyed) res.destroy(); return; }
     console.error("Waitlist exportSignups error:", err);
     res.status(err.status || 500).json({
+      ...(err.upgradeRequired ? { upgradeRequired: true } : {}),
       error: err.status ? err.message : process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
     });
   }
@@ -182,8 +178,10 @@ async function updateSignupPosition(req, res) {
       const ordered = await rankedSignups(waitlist._id, [], session);
       const target = ordered.find((entry) => entry._id.toString() === signupId);
       if (!target) throw Object.assign(new Error("Signup not found"), { status: 404 });
-      if (currentPosition > ordered.length) throw Object.assign(new Error("Position exceeds queue size"), { status: 400 });
-      const others = ordered.filter((entry) => entry._id.toString() !== signupId);
+      if (target.verificationState === "pending") throw Object.assign(new Error("Subscriber must verify their email first"), { status: 400 });
+      const eligible = ordered.filter((entry) => entry.verificationState !== "pending");
+      if (currentPosition > eligible.length) throw Object.assign(new Error("Position exceeds queue size"), { status: 400 });
+      const others = eligible.filter((entry) => entry._id.toString() !== signupId);
       const index = currentPosition - 1;
       const before = others[index - 1];
       const after = others[index];
@@ -209,6 +207,7 @@ async function updateSignupPosition(req, res) {
   } catch (err) {
     console.error("Waitlist updateSignupPosition error:", err);
     res.status(err.status || 500).json({
+      ...(err.upgradeRequired ? { upgradeRequired: true } : {}),
       error: err.status ? err.message : process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
     });
   }
@@ -229,44 +228,36 @@ async function batchInvite(req, res) {
       return res.status(404).json({ error: "Waitlist not found" });
     }
 
-    // Filter to only signups that belong to this specific waitlist
-    const validSignups = await Signup.find({
-      _id: { $in: signupIds },
-      waitlistId: waitlist._id,
+    const emails = await mongoose.connection.transaction(async (session) => {
+      await Waitlist.updateOne({ _id: waitlist._id }, { $inc: { queueVersion: 1 } }, { session });
+      const selected = await Signup.find({ _id: { $in: signupIds }, waitlistId: waitlist._id, status: { $ne: "invited" }, verificationState: { $ne: "pending" } }).session(session);
+      const queued = [];
+      for (const signup of selected) {
+        let email = await EmailOutbox.findOne({ dedupeKey: `invitation-${signup._id}` }).session(session);
+        if (email && !["failed"].includes(email.state)) continue;
+        if (email) {
+          email = await EmailOutbox.findByIdAndUpdate(email._id, { $inc: { generation: 1 }, $set: {
+            state: "pending", nextDispatchAt: new Date(), leaseUntil: null, lastError: null,
+          } }, { session, returnDocument: "after" });
+        } else {
+          email = await recordEmail({ dedupeKey: `invitation-${signup._id}`, kind: "invitation", waitlistId: waitlist._id, signupId: signup._id,
+            to: signup.email, subject: `You're invited to ${waitlist.name}!`,
+            html: invitedEmail({ waitlistName: waitlist.name, thankYouMessage: waitlist.thankYouMessage }) }, session);
+        }
+        await Signup.updateOne({ _id: signup._id }, { $set: { invitationState: "queued" } }, { session });
+        queued.push(email);
+      }
+      return queued;
     });
+    await dispatchInline(emails);
+    const deliveredCount = await EmailOutbox.countDocuments({ _id: { $in: emails.map((e) => e._id) }, state: "sent" });
+    const failedCount = await EmailOutbox.countDocuments({ _id: { $in: emails.map((e) => e._id) }, state: "failed" });
+    res.json({ invitedCount: deliveredCount, queuedCount: emails.length - deliveredCount - failedCount, failedCount });
 
-    if (validSignups.length === 0) {
-      return res.json({ invitedCount: 0 });
-    }
-
-    const validIds = validSignups.map((s) => s._id);
-
-    await Signup.updateMany(
-      { _id: { $in: validIds } },
-      { $set: { status: "invited" } }
-    );
-
-    // Send invitations concurrently via Promise.allSettled so individual email failures
-    // do not block or abort the rest of the batch.
-    // Note: For very high-volume production lists, a persistent background job queue (e.g., BullMQ)
-    // would be the appropriate architectural upgrade.
-    const emailPromises = validSignups.map((signup) =>
-      sendEmail({
-        to: signup.email,
-        subject: `You're invited to ${waitlist.name}!`,
-        html: invitedEmail({
-          waitlistName: waitlist.name,
-          thankYouMessage: waitlist.thankYouMessage,
-        }),
-      })
-    );
-
-    await Promise.allSettled(emailPromises);
-
-    res.json({ invitedCount: validSignups.length });
   } catch (err) {
     console.error("Waitlist batchInvite error:", err);
     res.status(err.status || 500).json({
+      ...(err.upgradeRequired ? { upgradeRequired: true } : {}),
       error: err.status ? err.message : process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
     });
   }

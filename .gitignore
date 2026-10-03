@@ -25,6 +25,7 @@ build/
 coverage/
 .temp/
 .tmp/
+docs/
 
 # OS and IDE Metadata
 .DS_Store
