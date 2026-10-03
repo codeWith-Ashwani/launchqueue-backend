@@ -34,7 +34,7 @@ describe("Concurrent referral queue", () => {
     expect(responses.every((r) => r.status === 201)).toBe(true);
     const retries = await Promise.all(Array.from({ length: 5 }, () => join("retry@example.com", original.body.refCode)));
     expect(retries.filter((r) => r.status === 201)).toHaveLength(1);
-    expect(retries.filter((r) => r.status === 200)).toHaveLength(4);
+    expect(retries.filter((r) => r.status === 202)).toHaveLength(4);
     const referrer = await Signup.findOne({ refCode: original.body.refCode });
     expect(referrer.referralCount).toBe(9);
     expect(await Signup.countDocuments({ waitlistId: waitlist._id })).toBe(10);

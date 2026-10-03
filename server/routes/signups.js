@@ -4,18 +4,20 @@ const {
   getWaitlistInfo,
   join,
   checkPosition,
+  requestStatusLink,
   getLeaderboard,
   recordVisit,
   getRecentActivity,
 } = require("../controllers/signupController");
 const { signupLimiter } = require("../middleware/rateLimiter");
 const validate = require("../middleware/validate");
-const { signupJoinSchema } = require("../validators/schemas");
+const { signupJoinSchema, requestPasswordResetSchema } = require("../validators/schemas");
 
 // all public — no authMiddleware here
 router.get("/:slug", getWaitlistInfo);
 router.post("/:slug/signup", signupLimiter, validate(signupJoinSchema), join);
-router.get("/:slug/position", checkPosition);
+router.get("/:slug/position", signupLimiter, checkPosition);
+router.post("/:slug/status-link", signupLimiter, validate(requestPasswordResetSchema), requestStatusLink);
 router.get("/:slug/leaderboard", getLeaderboard);
 router.post("/:slug/visit", recordVisit);
 router.get("/:slug/activity", getRecentActivity);

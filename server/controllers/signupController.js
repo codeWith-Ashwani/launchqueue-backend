@@ -1,3 +1,5 @@
+const { issueSubscriberToken, verifySubscriberToken } = require("../utils/subscriberToken");
+const statusEmail = require("../templates/statusEmail");
 const mongoose = require("mongoose");
 const { rankedSignups, signupState } = require("../services/ranking");
 const Waitlist = require("../models/Waitlist");
@@ -81,7 +83,11 @@ async function join(req, res) {
       }
       return { waitlist, signup, referrer, alreadyJoined: false };
     });
-    const data = await signupState(result.signup, result.waitlist, result.alreadyJoined);
+    if (result.alreadyJoined) {
+      await emailStatusLink(result.signup, result.waitlist);
+      return res.status(202).json({ statusLinkSent: true, alreadyJoined: true, message: STATUS_MESSAGE });
+    }
+    const data = { ...await signupState(result.signup, result.waitlist), statusToken: issueSubscriberToken(result.signup) };
     if (!result.alreadyJoined) {
       const shareUrl = `${process.env.CLIENT_URL}/w/${result.waitlist.slug}?ref=${result.signup.refCode}`;
       void sendEmail({ to: result.signup.email, subject: `You're #${data.position} on the ${result.waitlist.name} waitlist`,
@@ -98,7 +104,10 @@ async function join(req, res) {
     if (err.code === 11000) {
       const waitlist = await Waitlist.findOne({ slug: req.params.slug });
       const existing = waitlist && await Signup.findOne({ waitlistId: waitlist._id, email: req.body.email });
-      if (existing) return res.json(await signupState(existing, waitlist, true));
+      if (existing) {
+        await emailStatusLink(existing, waitlist);
+        return res.status(202).json({ statusLinkSent: true, alreadyJoined: true, message: STATUS_MESSAGE });
+      }
       return res.status(409).json({ error: "Please retry your signup" });
     }
     console.error("join waitlist error:", err);
@@ -107,34 +116,39 @@ async function join(req, res) {
 }
 
 // GET /api/w/:slug/position?ref=xxxx or ?email=xxxx  (public) — look up current position
-async function checkPosition(req, res) {
+const STATUS_MESSAGE = "If this email is on the waitlist, a private status link will be sent.";
+
+async function emailStatusLink(signup, waitlist) {
+  const statusUrl = `${process.env.CLIENT_URL}/w/${waitlist.slug}#status=${issueSubscriberToken(signup)}`;
+  await sendEmail({ to: signup.email, subject: "Your private LaunchQueue status link", html: statusEmail({ statusUrl }) });
+}
+
+async function requestStatusLink(req, res) {
   try {
-    const { ref, email } = req.query;
     const waitlist = await Waitlist.findOne({ slug: req.params.slug });
-    if (!waitlist) {
-      return res.status(404).json({ error: "Waitlist not found" });
-    }
-
-    const query = { waitlistId: waitlist._id };
-    if (ref) {
-      query.refCode = ref;
-    } else if (email) {
-      query.email = email.toLowerCase().trim();
-    } else {
-      return res.status(400).json({ error: "Ref code or email is required" });
-    }
-
-    const signup = await Signup.findOne(query);
-    if (!signup) {
-      return res.status(404).json({ error: "Signup not found" });
-    }
-
-    res.json(await signupState(signup, waitlist));
+    const signup = waitlist && await Signup.findOne({ waitlistId: waitlist._id, email: req.body.email });
+    if (signup) await emailStatusLink(signup, waitlist);
+    res.status(202).json({ message: STATUS_MESSAGE, statusLinkSent: true });
   } catch (err) {
-    console.error("checkPosition error:", err);
-    res.status(500).json({
-      error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
-    });
+    console.error("Status link delivery failed:", err.message);
+    res.status(503).json({ error: "Unable to request a status link. Please try again." });
+  }
+}
+
+async function checkPosition(req, res) {
+  let identity;
+  try { identity = verifySubscriberToken(req.get("X-Subscriber-Token") || ""); }
+  catch { return res.status(401).json({ error: "A valid private status link is required" }); }
+  try {
+    const waitlist = await Waitlist.findOne({ slug: req.params.slug });
+    if (!waitlist || waitlist._id.toString() !== identity.waitlistId) {
+      return res.status(401).json({ error: "A valid private status link is required" });
+    }
+    const signup = await Signup.findOne({ _id: identity.signupId, waitlistId: waitlist._id });
+    if (!signup) return res.status(401).json({ error: "A valid private status link is required" });
+    res.json({ ...await signupState(signup, waitlist), statusToken: req.get("X-Subscriber-Token") });
+  } catch {
+    res.status(500).json({ error: "Unable to retrieve status" });
   }
 }
 
@@ -257,6 +271,7 @@ module.exports = {
   getWaitlistInfo,
   join,
   checkPosition,
+  requestStatusLink,
   getLeaderboard,
   recordVisit,
   getRecentActivity,
