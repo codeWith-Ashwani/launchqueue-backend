@@ -123,9 +123,13 @@ const batchInviteSchema = z.object({
 });
 
 const visitSchema = z.object({ visitorId: z.string().trim().min(1).max(128) });
+const paginationSchema = z.object({ page: z.coerce.number().int().min(1).max(1000000).default(1), limit: z.coerce.number().int().min(1).max(100).default(50) });
+const funnelQuerySchema = z.object({ days: z.coerce.number().int().min(1).max(365).optional() });
 
 module.exports = {
   visitSchema,
+  paginationSchema,
+  funnelQuerySchema,
   registerSchema,
   loginSchema,
   updateProfileSchema,

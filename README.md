@@ -302,10 +302,13 @@ Inline mode preserves local development compatibility and records delivery failu
 
 ## Analytics & Aggregation Pipeline
 
-- **Conversion Rate**: Calculated from unique page views (`PageView` collection) and signups (`Signup` collection):
-  $$\text{Conversion Rate} = \frac{\text{Total Signups}}{\max(\text{Unique Visitors}, \text{Total Signups})} \times 100$$
-- **Funnel Breakdown**: `GET /api/waitlists/:id/funnel` partitions signups into Direct (`referredBy: null`) vs. Referred (`referredBy: { $ne: null }`).
-- **Time-Series Signups**: MongoDB Aggregation Pipeline groups signups over the last 30 days by day (`$dateToString: { format: "%Y-%m-%d" }`).
+Subscriber roster responses are paginated (`page=1`, `limit=50`, maximum 100). Counts and daily buckets are aggregated in MongoDB; charts fill missing days across 30 UTC dates. Unique visitors are counted in MongoDB instead of loading visitor IDs into JavaScript. Traffic capture records one event per visitor per UTC half-hour bucket with a compound unique index, including concurrent requests.
+
+`conversionRate` is the **verified signup/unique visitor ratio**, displayed with that label. It is 0 when no visitors were tracked and can exceed 100% if visitor tracking is incomplete; it is not a measured cohort conversion probability. Pending signups appear separately in stats and do not inflate the verified ratio. Date-filtered referral reports count referred enrollments during the selected period, including referrals credited to older subscribers.
+
+CSV exports stream aggregate cursor batches with backpressure and close on disconnect. Fields beginning with spreadsheet formula characters are neutralized before RFC 4180 escaping. Campaign and date indexes support the aggregation filters.
+
+The public leaderboard uses an optional 10-second Redis cache containing masked identities only. Cache keys include the campaign's signup sequence and queue version, so queue mutations invalidate results without scans. Cache failures fall back to MongoDB; subscriber status and founder rosters are never cached publicly.
 
 ---
 
@@ -321,7 +324,7 @@ npm test
 npm run lint
 ```
 
-### Test Suites (26 suites, 113 tests verified in Build 8)
+### Test Suites (28 suites, 119 tests verified in Build 9)
 - `adminControls.test.js`: Position override validation, unowned resource 404 guards, batch invite execution.
 - `auth.test.js`: Registration, login, duplicate email rejection, session verification.
 - `calculatePosition.test.js`: Unit tests for mathematical referral queue promotion formula.
@@ -424,8 +427,8 @@ For the worker, set root directory `server`, build command `npm ci`, and start c
 
 - Queue delivery requires a running worker; API requests can safely persist notifications during Redis outages, but delivery waits for recovery.
 - SMTP receipt means the provider accepted the message, not that it reached the subscriber's inbox.
-- Referral ranks use aggregation across the campaign; pagination and larger-volume performance work are planned.
-- Browser end-to-end coverage and larger-volume analytics improvements are planned in later builds.
+- Referral ranks aggregate across the campaign and can use MongoDB disk spill. API responses and export application memory are bounded, but ranking still requires campaign-wide database work.
+- Browser end-to-end coverage is planned in the final build.
 
 ## Shared Request Protection
 

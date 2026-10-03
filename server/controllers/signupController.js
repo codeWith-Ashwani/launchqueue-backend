@@ -1,3 +1,4 @@
+const publicCache = require("../services/publicCache");
 const Founder = require("../models/Founder");
 const { limitsFor } = require("../services/entitlements");
 const { issueVerificationToken, verifyVerificationToken } = require("../utils/verificationToken");
@@ -224,21 +225,15 @@ async function getLeaderboard(req, res) {
       return res.status(404).json({ error: "Waitlist not found" });
     }
 
-    const topReferrers = await rankedSignups(waitlist._id, [
-      { $match: { referralCount: { $gt: 0 }, verificationState: { $ne: "pending" } } },
-      { $sort: { referralCount: -1, currentPosition: 1 } }, { $limit: 10 },
-      { $project: { email: 1, referralCount: 1, currentPosition: 1 } },
-    ]);
-
-    const leaderboard = topReferrers.map((r, index) => ({
-      _id: r._id,
-      rank: index + 1,
-      anonymizedEmail: maskEmail(r.email),
-      email: maskEmail(r.email),
-      referralCount: r.referralCount,
-      currentPosition: r.currentPosition,
-    }));
-
+    const leaderboard = await publicCache(`launchqueue:leaderboard:${waitlist._id}:${waitlist.signupSequence}:${waitlist.queueVersion}`, async () => {
+      const topReferrers = await rankedSignups(waitlist._id, [
+        { $match: { referralCount: { $gt: 0 }, verificationState: { $ne: "pending" } } },
+        { $sort: { referralCount: -1, currentPosition: 1 } }, { $limit: 10 },
+        { $project: { email: 1, referralCount: 1, currentPosition: 1 } },
+      ]);
+      return topReferrers.map((r, index) => ({ _id: r._id, rank: index + 1, anonymizedEmail: maskEmail(r.email), email: maskEmail(r.email),
+        referralCount: r.referralCount, currentPosition: r.currentPosition }));
+    });
     res.json({ leaderboard });
   } catch (err) {
     console.error("getLeaderboard error:", err);
@@ -261,21 +256,11 @@ async function recordVisit(req, res) {
       return res.status(404).json({ error: "Waitlist not found" });
     }
 
-    // Deduplicate: ignore rapid refreshes from the same visitor within 30 minutes
-    const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
-    const recentVisit = await PageView.findOne({
-      waitlistId: waitlist._id,
-      visitorId: visitorId.trim(),
-      createdAt: { $gte: thirtyMinutesAgo },
-    });
-
-    if (!recentVisit) {
-      await PageView.create({
-        waitlistId: waitlist._id,
-        visitorId: visitorId.trim(),
-      });
-    }
-
+    const bucketStart = new Date(Math.floor(Date.now() / 1800000) * 1800000);
+    try {
+      await PageView.updateOne({ waitlistId: waitlist._id, visitorId: visitorId.trim(), bucketStart },
+        { $setOnInsert: { waitlistId: waitlist._id, visitorId: visitorId.trim(), bucketStart } }, { upsert: true });
+    } catch (err) { if (err.code !== 11000) throw err; }
     res.json({ recorded: true });
   } catch (err) {
     console.error("recordVisit error:", err);
