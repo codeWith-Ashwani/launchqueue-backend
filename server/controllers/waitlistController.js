@@ -37,7 +37,7 @@ async function create(req, res) {
       const baseSlug = name.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "waitlist";
       let slug = baseSlug; let suffix = 1;
       while (await Waitlist.findOne({ slug }).session(session)) slug = `${baseSlug}-${suffix++}`;
-      const [created] = await Waitlist.create([{ founderId: owner._id, name, slug, description: description || "" }], { session });
+      const [created] = await Waitlist.create([{ ...req.body, founderId: owner._id, name, slug, description: description || "" }], { session });
       return created;
     });
     res.status(201).json({ waitlist });
@@ -92,6 +92,7 @@ async function update(req, res) {
       "name", "description", "thankYouMessage", "paused",
       "heroHeadline", "heroSubheadline", "heroImageUrl",
       "accentColor", "ctaText", "features", "milestones",
+      "pageDesign",
     ];
     const updates = {};
     for (const field of allowedFields) {

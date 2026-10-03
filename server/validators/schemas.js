@@ -1,4 +1,5 @@
 const { z } = require("zod");
+const { pageDesignSchema, imageUrl, color } = require("./campaignDesign");
 
 const registerSchema = z.object({
   email: z
@@ -69,6 +70,15 @@ const createWaitlistSchema = z.object({
     .trim()
     .min(1, "Waitlist name is required").max(100),
   description: z.string().max(4000).optional().default(""),
+  heroHeadline: z.string().max(4000).optional(),
+  heroSubheadline: z.string().max(4000).optional(),
+  heroImageUrl: imageUrl.optional(),
+  accentColor: color.optional(),
+  ctaText: z.string().max(4000).optional(),
+  features: z.array(z.object({ icon: z.string().max(16), title: z.string().min(1).max(120), description: z.string().max(600) })).max(6).optional(),
+  pageDesign: pageDesignSchema.optional(),
+  thankYouMessage: z.string().max(4000).optional(),
+  milestones: z.array(z.object({ referrals: z.number().int().positive(), reward: z.string().min(1).max(200) })).max(20).optional(),
 });
 
 const featureItemSchema = z.object({
@@ -92,11 +102,12 @@ const updateWaitlistSchema = z.object({
   paused: z.boolean().optional(),
   heroHeadline: z.string().max(4000).optional(),
   heroSubheadline: z.string().max(4000).optional(),
-  heroImageUrl: z.string().max(4000).optional(),
-  accentColor: z.string().max(4000).optional(),
+  heroImageUrl: imageUrl.optional(),
+  accentColor: color.optional(),
   ctaText: z.string().max(4000).optional(),
   features: z.array(featureItemSchema).max(20).optional(),
   milestones: z.array(milestoneItemSchema).max(20).optional(),
+  pageDesign: pageDesignSchema.optional(),
 });
 
 const signupJoinSchema = z.object({

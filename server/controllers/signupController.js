@@ -41,6 +41,7 @@ async function getWaitlistInfo(req, res) {
       heroImageUrl: waitlist.heroImageUrl,
       accentColor: waitlist.accentColor,
       ctaText: waitlist.ctaText,
+      pageDesign: waitlist.pageDesign,
       features: waitlist.features,
       milestones: waitlist.milestones,
     });

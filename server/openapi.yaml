@@ -316,6 +316,44 @@ paths:
         '401':
           description: Unauthorized
 
+  /api/waitlists/design:
+    post:
+      summary: 'Generate an editable branded campaign page draft'
+      tags:
+        - Waitlists
+      description: 'Requires a configured Gemini API key. Does not create or update a campaign. Five attempts per founder per UTC day, plus the shared AI_DAILY_LIMIT allowance. Publish explicitly through the create/update endpoints.'
+      security:
+        -
+          bearerAuth: []
+        -
+          cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateCampaignDesignRequest'
+      responses:
+        '200':
+          description: 'Validated design draft'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  design:
+                    $ref: '#/components/schemas/CampaignDesignDraft'
+        '400':
+          description: 'Invalid campaign details or preferences'
+        '401':
+          description: 'Founder authentication required'
+        '429':
+          description: 'Application allowance or provider quota reached'
+        '502':
+          description: 'Invalid or unavailable provider response'
+        '503':
+          description: 'AI unconfigured or connection timeout'
+
   /api/waitlists/{id}:
     get:
       summary: Fetch single waitlist details
@@ -774,15 +812,10 @@ components:
           $ref: '#/components/schemas/FounderProfile'
 
     CreateWaitlistRequest:
-      type: object
-      required: [name]
-      properties:
-        name:
-          type: string
-          example: RocketPay
-        description:
-          type: string
-          example: Modern instant global developer payouts
+      allOf:
+        - $ref: '#/components/schemas/UpdateWaitlistRequest'
+        - type: object
+          required: [name]
 
     UpdateWaitlistRequest:
       type: object
@@ -813,6 +846,8 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/MilestoneItem'
+        pageDesign:
+          $ref: '#/components/schemas/PageDesign'
 
     FeatureItem:
       type: object
@@ -863,6 +898,8 @@ components:
         createdAt:
           type: string
           format: date-time
+        pageDesign:
+          $ref: '#/components/schemas/PageDesign'
 
     WaitlistWithCount:
       allOf:
@@ -904,6 +941,8 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/MilestoneItem'
+        pageDesign:
+          $ref: '#/components/schemas/PageDesign'
 
     SignupJoinRequest:
       type: object
@@ -1060,3 +1099,374 @@ components:
         error:
           type: string
           example: Something went wrong
+
+    PageDesign:
+      type: object
+      properties:
+        layout:
+          type: string
+          enum:
+            - centered
+            - split
+            - editorial
+        backgroundColor:
+          type: string
+          pattern: '^#[0-9a-fA-F]{6}$'
+        surfaceColor:
+          type: string
+          pattern: '^#[0-9a-fA-F]{6}$'
+        fontFamily:
+          type: string
+          enum:
+            - sans
+            - serif
+            - mono
+        cornerStyle:
+          type: string
+          enum:
+            - sharp
+            - rounded
+            - pill
+        backgroundStyle:
+          type: string
+          enum:
+            - solid
+            - gradient
+            - grid
+        eyebrow:
+          type: string
+          maxLength: 80
+        signupHeading:
+          type: string
+          maxLength: 100
+        featureHeading:
+          type: string
+          maxLength: 120
+        rewardHeading:
+          type: string
+          maxLength: 120
+        logoUrl:
+          anyOf:
+            -
+              type: string
+              enum:
+                - ""
+            -
+              type: string
+              maxLength: 2000
+              format: uri
+        sectionOrder:
+          maxItems: 6
+          type: array
+          items:
+            type: string
+            enum:
+              - features
+              - story
+              - steps
+              - faq
+              - rewards
+              - leaderboard
+        story:
+          type: object
+          properties:
+            title:
+              type: string
+              maxLength: 120
+            body:
+              type: string
+              maxLength: 1500
+          required:
+            - title
+            - body
+          additionalProperties: false
+        steps:
+          maxItems: 6
+          type: array
+          items:
+            type: object
+            properties:
+              title:
+                type: string
+                minLength: 1
+                maxLength: 120
+              description:
+                type: string
+                maxLength: 600
+            required:
+              - title
+              - description
+            additionalProperties: false
+        faq:
+          maxItems: 6
+          type: array
+          items:
+            type: object
+            properties:
+              question:
+                type: string
+                minLength: 1
+                maxLength: 160
+              answer:
+                type: string
+                maxLength: 600
+            required:
+              - question
+              - answer
+            additionalProperties: false
+      required:
+        - layout
+        - backgroundColor
+        - surfaceColor
+        - fontFamily
+        - cornerStyle
+        - backgroundStyle
+        - eyebrow
+        - signupHeading
+        - featureHeading
+        - rewardHeading
+        - logoUrl
+        - sectionOrder
+        - story
+        - steps
+        - faq
+      additionalProperties: false
+
+    CampaignDesignDraft:
+      type: object
+      properties:
+        heroHeadline:
+          type: string
+          minLength: 1
+          maxLength: 180
+        heroSubheadline:
+          type: string
+          maxLength: 600
+        ctaText:
+          type: string
+          minLength: 1
+          maxLength: 60
+        accentColor:
+          type: string
+          pattern: '^#[0-9a-fA-F]{6}$'
+        features:
+          maxItems: 6
+          type: array
+          items:
+            type: object
+            properties:
+              icon:
+                type: string
+                maxLength: 16
+              title:
+                type: string
+                minLength: 1
+                maxLength: 120
+              description:
+                type: string
+                maxLength: 600
+            required:
+              - icon
+              - title
+              - description
+            additionalProperties: false
+        pageDesign:
+          type: object
+          properties:
+            layout:
+              type: string
+              enum:
+                - centered
+                - split
+                - editorial
+            backgroundColor:
+              type: string
+              pattern: '^#[0-9a-fA-F]{6}$'
+            surfaceColor:
+              type: string
+              pattern: '^#[0-9a-fA-F]{6}$'
+            fontFamily:
+              type: string
+              enum:
+                - sans
+                - serif
+                - mono
+            cornerStyle:
+              type: string
+              enum:
+                - sharp
+                - rounded
+                - pill
+            backgroundStyle:
+              type: string
+              enum:
+                - solid
+                - gradient
+                - grid
+            eyebrow:
+              type: string
+              maxLength: 80
+            signupHeading:
+              type: string
+              maxLength: 100
+            featureHeading:
+              type: string
+              maxLength: 120
+            rewardHeading:
+              type: string
+              maxLength: 120
+            logoUrl:
+              anyOf:
+                -
+                  type: string
+                  enum:
+                    - ""
+                -
+                  type: string
+                  maxLength: 2000
+                  format: uri
+            sectionOrder:
+              maxItems: 6
+              type: array
+              items:
+                type: string
+                enum:
+                  - features
+                  - story
+                  - steps
+                  - faq
+                  - rewards
+                  - leaderboard
+            story:
+              type: object
+              properties:
+                title:
+                  type: string
+                  maxLength: 120
+                body:
+                  type: string
+                  maxLength: 1500
+              required:
+                - title
+                - body
+              additionalProperties: false
+            steps:
+              maxItems: 6
+              type: array
+              items:
+                type: object
+                properties:
+                  title:
+                    type: string
+                    minLength: 1
+                    maxLength: 120
+                  description:
+                    type: string
+                    maxLength: 600
+                required:
+                  - title
+                  - description
+                additionalProperties: false
+            faq:
+              maxItems: 6
+              type: array
+              items:
+                type: object
+                properties:
+                  question:
+                    type: string
+                    minLength: 1
+                    maxLength: 160
+                  answer:
+                    type: string
+                    maxLength: 600
+                required:
+                  - question
+                  - answer
+                additionalProperties: false
+          required:
+            - layout
+            - backgroundColor
+            - surfaceColor
+            - fontFamily
+            - cornerStyle
+            - backgroundStyle
+            - eyebrow
+            - signupHeading
+            - featureHeading
+            - rewardHeading
+            - logoUrl
+            - sectionOrder
+            - story
+            - steps
+            - faq
+          additionalProperties: false
+      required:
+        - heroHeadline
+        - heroSubheadline
+        - ctaText
+        - accentColor
+        - features
+        - pageDesign
+      additionalProperties: false
+
+    GenerateCampaignDesignRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        description:
+          default: ""
+          type: string
+          maxLength: 4000
+        preferences:
+          type: object
+          properties:
+            brief:
+              type: string
+              minLength: 10
+              maxLength: 2000
+            audience:
+              default: ""
+              type: string
+              maxLength: 300
+            tone:
+              default: professional
+              type: string
+              enum:
+                - professional
+                - playful
+                - calm
+                - bold
+            layout:
+              default: auto
+              type: string
+              enum:
+                - auto
+                - centered
+                - split
+                - editorial
+            accentColor:
+              default: ""
+              anyOf:
+                -
+                  type: string
+                  enum:
+                    - ""
+                -
+                  type: string
+                  pattern: '^#[0-9a-fA-F]{6}$'
+          required:
+            - brief
+            - audience
+            - tone
+            - layout
+            - accentColor
+          additionalProperties: false
+      required:
+        - name
+        - description
+        - preferences
+      additionalProperties: false
