@@ -324,7 +324,7 @@ npm test
 npm run lint
 ```
 
-### Test Suites (28 suites, 119 tests verified in Build 9)
+### Test Suites (31 suites, 125 tests verified in Build 10)
 - `adminControls.test.js`: Position override validation, unowned resource 404 guards, batch invite execution.
 - `auth.test.js`: Registration, login, duplicate email rejection, session verification.
 - `calculatePosition.test.js`: Unit tests for mathematical referral queue promotion formula.
@@ -399,7 +399,7 @@ npm install
 # 3. Configure environment file
 cp ../.env.example .env
 
-# 4. Start server in development mode (using nodemon)
+# 4. Start server in development mode (using Node.js watch mode)
 npm run dev
 ```
 
@@ -428,7 +428,7 @@ For the worker, set root directory `server`, build command `npm ci`, and start c
 - Queue delivery requires a running worker; API requests can safely persist notifications during Redis outages, but delivery waits for recovery.
 - SMTP receipt means the provider accepted the message, not that it reached the subscriber's inbox.
 - Referral ranks aggregate across the campaign and can use MongoDB disk spill. API responses and export application memory are bounded, but ranking still requires campaign-wide database work.
-- Browser end-to-end coverage is planned in the final build.
+- SMTP delivery is at least once; database receipts cannot make an external SMTP send atomic.
 
 ## Shared Request Protection
 
@@ -448,3 +448,22 @@ Unsafe requests to founder APIs reject untrusted browser origins. Cookie-based m
 | Agency | Unlimited | Unlimited | Yes |
 
 Creation and signup limits are checked inside MongoDB transactions, including pending signups. Existing data is preserved after downgrades; capacity checks block new additions. CSV checks campaign ownership before plan access. Pricing lists implemented features only. Subscribe the provider webhook to `subscription_created` and `subscription_updated` at minimum. Set `LEMONSQUEEZY_TEST_MODE=true` only for a test-mode integration.
+
+## Interview Demo and Validation
+
+`cd server && npm run demo` starts a loopback-only API on port 5051 with an owned, ephemeral MongoDB replica set, 120 synthetic verified subscribers, and captured email. It never connects to `MONGO_URI` or sends SMTP. Set the frontend's `VITE_API_URL=http://localhost:5051/api`, start the frontend, then sign in with `demo@example.com` / `DemoPassword123!`. The demo campaign is `/w/interview-demo`. Read captured links at `http://localhost:5051/__demo/inbox`. The fixture is for local use and must not be deployed as the production entry point.
+
+Backend: 31 suites / 125 tests. Frontend: 38 component tests plus two Playwright browser flows covering verification, repeated links, private recovery, founder login, paging, invitations and CSV download. Browser tests run against the real API and isolated MongoDB with captured SMTP; real Redis integration tests separately exercise BullMQ retry/recovery and shared rate limits. CI audits production dependencies. Both npm audits reported zero vulnerabilities at the final build.
+
+`npm run benchmark` measures 50-row analytics responses using isolated synthetic data. Local Node 22.19.0 measurements, ten requests after one warmup:
+
+| Subscribers | Rows returned | Response bytes | Median | p95 |
+| ---: | ---: | ---: | ---: | ---: |
+| 1,000 | 50 | 12,938 | 20 ms | 50 ms |
+| 10,000 | 50 | 12,944 | 117 ms | 139 ms |
+
+These are local observations, not production capacity guarantees. Ranking still scales with campaign size. Route splitting reduced the frontend main JavaScript bundle from 744 KB to 286 KB (94 KB gzip); charts load with the founder detail route.
+
+Requests return `X-Request-Id` and emit structured method, route-pattern, status and duration logs. Query strings, tokens, payloads and subscriber identities are omitted from request logs. Notification templates escape founder-supplied HTML; SMTP supports an explicit host/port or the Gmail preset.
+
+For an interview, walk through a referred signup, mailbox verification, transactional credit, private recovery, then founder invitation delivery. Explain the unique email constraint, transaction retries, deterministic ranks, outbox recovery after Redis loss, SMTP's duplicate-delivery window, webhook ordering, cancellation grace periods, and the measured ranking bottleneck. Deployment still requires a Render worker and Redis configuration; feature branch pushes do not activate those services.

@@ -83,7 +83,7 @@ async function createCheckout(req, res) {
 
     res.json({ checkoutUrl: data.data.attributes.url });
   } catch (err) {
-    console.error("CreateCheckout error:", err);
+    console.error("CreateCheckout error:", { requestId: req.requestId, code: err.code || "INTERNAL" });
     res.status(500).json({
       error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
     });
@@ -113,7 +113,7 @@ async function getCustomerPortal(req, res) {
     }
     res.json({ portalUrl: founder.customerPortalUrl });
   } catch (err) {
-    console.error("GetCustomerPortal error:", err);
+    console.error("GetCustomerPortal error:", { requestId: req.requestId, code: err.code || "INTERNAL" });
     res.status(500).json({
       error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
     });

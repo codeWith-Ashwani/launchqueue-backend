@@ -1,4 +1,7 @@
+const escapeHtml = require("../utils/escapeHtml");
 function confirmationEmail({ waitlistName, position, shareUrl }) {
+  waitlistName = escapeHtml(waitlistName);
+  shareUrl = escapeHtml(shareUrl);
   return `
   <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
     <h2 style="margin-bottom: 4px;">You're on the list! 🎉</h2>

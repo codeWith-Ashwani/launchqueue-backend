@@ -1,4 +1,7 @@
+const escapeHtml = require("../utils/escapeHtml");
 function invitedEmail({ waitlistName, thankYouMessage }) {
+  waitlistName = escapeHtml(waitlistName);
+  thankYouMessage = escapeHtml(thankYouMessage);
   return `
   <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
     <h2 style="margin-bottom: 8px;">You've been invited! 🎉</h2>
