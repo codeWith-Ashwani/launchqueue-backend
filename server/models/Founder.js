@@ -50,6 +50,7 @@ const founderSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    sessionVersion: { type: Number, default: 0 },
   },
   { timestamps: true }
 );
