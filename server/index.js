@@ -16,6 +16,7 @@ validateEnv();
 const app = express();
 app.set("trust proxy", Number(process.env.TRUST_PROXY_HOPS || 0));
 const browserRequest = require("./middleware/browserRequest");
+app.use(require("./middleware/requestTrace"));
 const PORT = process.env.PORT || 5000;
 const { redisHealth, closeRedis } = require("./config/redis");
 
@@ -84,7 +85,7 @@ app.use("/api/w", openCors, require("./routes/signups"));
 
 // Centralized error handler
 app.use((err, req, res, _next) => {
-  console.error("Global Error Handler:", err.stack || err.message || err);
+  console.error(JSON.stringify({ type: "request_error", requestId: req.requestId, code: err.code || "INTERNAL", status: err.status || 500 }));
 
   const statusCode = err.status || 500;
   const isProd = process.env.NODE_ENV === "production";

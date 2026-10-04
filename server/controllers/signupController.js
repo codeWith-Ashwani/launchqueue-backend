@@ -41,11 +41,12 @@ async function getWaitlistInfo(req, res) {
       heroImageUrl: waitlist.heroImageUrl,
       accentColor: waitlist.accentColor,
       ctaText: waitlist.ctaText,
+      pageDesign: waitlist.pageDesign,
       features: waitlist.features,
       milestones: waitlist.milestones,
     });
   } catch (err) {
-    console.error("getWaitlistInfo error:", err);
+    console.error("getWaitlistInfo error:", { requestId: req.requestId, code: err.code || "INTERNAL" });
     res.status(500).json({
       error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
     });
@@ -99,7 +100,7 @@ async function join(req, res) {
       }
       return res.status(409).json({ error: "Please retry your signup" });
     }
-    console.error("join waitlist error:", err);
+    console.error("join waitlist error:", { requestId: req.requestId, code: err.code || "INTERNAL" });
     return res.status(err.status || 500).json({ error: err.status ? err.message : "Unable to join waitlist" });
   }
 }
@@ -146,6 +147,8 @@ async function verifyEmail(req, res) {
               shareUrl: `${process.env.CLIENT_URL}/w/${waitlist.slug}?ref=${referrer.refCode}` }) }, session));
         }
         const [ranked] = await rankedSignups(waitlist._id, [{ $match: { _id: signup._id } }], session);
+        signup.initialPosition = ranked.currentPosition;
+        await signup.save({ session });
         emails.push(await recordEmail({ dedupeKey: `confirmation-${signup._id}`, kind: "confirmation", waitlistId: waitlist._id, signupId: signup._id,
           to: signup.email, subject: `You joined the ${waitlist.name} waitlist`,
           html: confirmationEmail({ waitlistName: waitlist.name, position: ranked.currentPosition,
@@ -178,7 +181,7 @@ async function requestStatusLink(req, res) {
     if (signup) await emailStatusLink(signup, waitlist);
     res.status(202).json({ message: STATUS_MESSAGE, statusLinkSent: true });
   } catch (err) {
-    console.error("Status link delivery failed:", err.message);
+    console.error("Status link delivery failed:", { requestId: req.requestId, code: err.code || "INTERNAL" });
     res.status(503).json({ error: "Unable to request a status link. Please try again." });
   }
 }
@@ -236,7 +239,7 @@ async function getLeaderboard(req, res) {
     });
     res.json({ leaderboard });
   } catch (err) {
-    console.error("getLeaderboard error:", err);
+    console.error("getLeaderboard error:", { requestId: req.requestId, code: err.code || "INTERNAL" });
     res.status(500).json({
       error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
     });
@@ -263,7 +266,7 @@ async function recordVisit(req, res) {
     } catch (err) { if (err.code !== 11000) throw err; }
     res.json({ recorded: true });
   } catch (err) {
-    console.error("recordVisit error:", err);
+    console.error("recordVisit error:", { requestId: req.requestId, code: err.code || "INTERNAL" });
     res.status(500).json({
       error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
     });
@@ -293,7 +296,7 @@ async function getRecentActivity(req, res) {
 
     res.json({ activities });
   } catch (err) {
-    console.error("getRecentActivity error:", err);
+    console.error("getRecentActivity error:", { requestId: req.requestId, code: err.code || "INTERNAL" });
     res.status(500).json({
       error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
     });

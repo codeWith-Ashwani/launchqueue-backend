@@ -37,12 +37,12 @@ async function create(req, res) {
       const baseSlug = name.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "waitlist";
       let slug = baseSlug; let suffix = 1;
       while (await Waitlist.findOne({ slug }).session(session)) slug = `${baseSlug}-${suffix++}`;
-      const [created] = await Waitlist.create([{ founderId: owner._id, name, slug, description: description || "" }], { session });
+      const [created] = await Waitlist.create([{ ...req.body, founderId: owner._id, name, slug, description: description || "" }], { session });
       return created;
     });
     res.status(201).json({ waitlist });
   } catch (err) {
-    console.error("Waitlist create error:", err);
+    console.error("Waitlist create error:", { requestId: req.requestId, code: err.code || "INTERNAL" });
     res.status(err.status || 500).json({
       ...(err.upgradeRequired ? { upgradeRequired: true } : {}),
       error: err.status ? err.message : process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
@@ -61,7 +61,7 @@ async function list(req, res) {
     const withCounts = waitlists.map((w) => ({ ...w.toObject(), signupCount: countMap.get(w._id.toString()) || 0 }));
     res.json({ waitlists: withCounts });
   } catch (err) {
-    console.error("Waitlist list error:", err);
+    console.error("Waitlist list error:", { requestId: req.requestId, code: err.code || "INTERNAL" });
     res.status(err.status || 500).json({
       ...(err.upgradeRequired ? { upgradeRequired: true } : {}),
       error: err.status ? err.message : process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
@@ -78,7 +78,7 @@ async function getOne(req, res) {
     }
     res.json({ waitlist });
   } catch (err) {
-    console.error("Waitlist getOne error:", err);
+    console.error("Waitlist getOne error:", { requestId: req.requestId, code: err.code || "INTERNAL" });
     res.status(err.status || 500).json({
       ...(err.upgradeRequired ? { upgradeRequired: true } : {}),
       error: err.status ? err.message : process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
@@ -92,6 +92,7 @@ async function update(req, res) {
       "name", "description", "thankYouMessage", "paused",
       "heroHeadline", "heroSubheadline", "heroImageUrl",
       "accentColor", "ctaText", "features", "milestones",
+      "pageDesign",
     ];
     const updates = {};
     for (const field of allowedFields) {
@@ -110,7 +111,7 @@ async function update(req, res) {
 
     res.json({ waitlist });
   } catch (err) {
-    console.error("Waitlist update error:", err);
+    console.error("Waitlist update error:", { requestId: req.requestId, code: err.code || "INTERNAL" });
     res.status(err.status || 500).json({
       ...(err.upgradeRequired ? { upgradeRequired: true } : {}),
       error: err.status ? err.message : process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
@@ -149,7 +150,7 @@ async function exportSignups(req, res) {
     } finally { res.removeListener("close", closed); await cursor.close(); }
   } catch (err) {
     if (res.headersSent) { if (!res.destroyed) res.destroy(); return; }
-    console.error("Waitlist exportSignups error:", err);
+    console.error("Waitlist exportSignups error:", { requestId: req.requestId, code: err.code || "INTERNAL" });
     res.status(err.status || 500).json({
       ...(err.upgradeRequired ? { upgradeRequired: true } : {}),
       error: err.status ? err.message : process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
@@ -205,7 +206,7 @@ async function updateSignupPosition(req, res) {
 
     res.json({ signup });
   } catch (err) {
-    console.error("Waitlist updateSignupPosition error:", err);
+    console.error("Waitlist updateSignupPosition error:", { requestId: req.requestId, code: err.code || "INTERNAL" });
     res.status(err.status || 500).json({
       ...(err.upgradeRequired ? { upgradeRequired: true } : {}),
       error: err.status ? err.message : process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
@@ -255,7 +256,7 @@ async function batchInvite(req, res) {
     res.json({ invitedCount: deliveredCount, queuedCount: emails.length - deliveredCount - failedCount, failedCount });
 
   } catch (err) {
-    console.error("Waitlist batchInvite error:", err);
+    console.error("Waitlist batchInvite error:", { requestId: req.requestId, code: err.code || "INTERNAL" });
     res.status(err.status || 500).json({
       ...(err.upgradeRequired ? { upgradeRequired: true } : {}),
       error: err.status ? err.message : process.env.NODE_ENV === "production" ? "Internal server error" : err.message,

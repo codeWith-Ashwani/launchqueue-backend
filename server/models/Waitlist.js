@@ -38,6 +38,11 @@ const waitlistSchema = new mongoose.Schema(
     heroImageUrl: { type: String, default: "" },
     accentColor: { type: String, default: "#111111" },
     ctaText: { type: String, default: "Join the waitlist" },
+    pageDesign: {
+      type: mongoose.Schema.Types.Mixed,
+      default: undefined,
+      validate: { validator: (value) => value === undefined || require("../validators/campaignDesign").pageDesignSchema.safeParse(value).success, message: "Invalid campaign page design" },
+    },
     features: [
       {
         icon: { type: String, default: "✨" },

@@ -60,7 +60,7 @@ async function register(req, res) {
       },
     });
   } catch (err) {
-    console.error("Register error:", err);
+    console.error("Register error:", { requestId: req.requestId, code: err.code || "INTERNAL" });
     res.status(500).json({
       error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
     });
@@ -103,7 +103,7 @@ async function login(req, res) {
       },
     });
   } catch (err) {
-    console.error("Login error:", err);
+    console.error("Login error:", { requestId: req.requestId, code: err.code || "INTERNAL" });
     res.status(500).json({
       error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
     });
@@ -167,7 +167,7 @@ async function googleLogin(req, res) {
       },
     });
   } catch (err) {
-    console.error("Google login error:", err.message);
+    console.error("Google login error:", { requestId: req.requestId, code: err.code || "INTERNAL" });
     res.status(401).json({
       error: "Invalid or expired Google credential",
     });
@@ -242,7 +242,7 @@ async function updateProfile(req, res) {
       },
     });
   } catch (err) {
-    console.error("Update profile error:", err);
+    console.error("Update profile error:", { requestId: req.requestId, code: err.code || "INTERNAL" });
     res.status(500).json({
       error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
     });
@@ -280,7 +280,7 @@ async function changePassword(req, res) {
 
     res.json({ message: "Password updated successfully" });
   } catch (err) {
-    console.error("Change password error:", err);
+    console.error("Change password error:", { requestId: req.requestId, code: err.code || "INTERNAL" });
     res.status(500).json({
       error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
     });
@@ -320,7 +320,7 @@ async function requestPasswordReset(req, res) {
 
     res.status(200).json(genericResponse);
   } catch (err) {
-    console.error("RequestPasswordReset error:", err);
+    console.error("RequestPasswordReset error:", { requestId: req.requestId, code: err.code || "INTERNAL" });
     res.status(500).json({
       error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
     });
@@ -349,7 +349,7 @@ async function resetPassword(req, res) {
       message: "Password has been successfully reset. You can now log in.",
     });
   } catch (err) {
-    console.error("ResetPassword error:", err);
+    console.error("ResetPassword error:", { requestId: req.requestId, code: err.code || "INTERNAL" });
     res.status(500).json({
       error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
     });

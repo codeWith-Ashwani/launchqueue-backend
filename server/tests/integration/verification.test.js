@@ -74,4 +74,14 @@ describe("Subscriber email verification", () => {
     expect(await Outbox.countDocuments({ kind: "verification" })).toBe(1);
     expect(sendEmail).toHaveBeenCalledTimes(1);
   });
+
+  it("uses the initial verified rank when reporting gains despite pending sequence gaps", async () => {
+    await join("pending@example.com");
+    await join("verified@example.com");
+    const signup = await Signup.findOne({ email: "verified@example.com" });
+    const response = await verify(issueVerificationToken(signup));
+    expect(response.body.basePosition).toBe(2);
+    expect(response.body.position).toBe(1);
+    expect(response.body.positionsGained).toBe(0);
+  });
 });

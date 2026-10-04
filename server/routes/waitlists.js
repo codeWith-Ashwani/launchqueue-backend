@@ -24,6 +24,7 @@ for (const name of ["id", "signupId"]) router.param(name, (req, res, next, value
   next();
 });
 router.use(authMiddleware); // every route below requires a valid founder
+router.post("/design", require("../middleware/rateLimiter").createLimiter("campaign-design", 300000, 3), validate(require("../validators/campaignDesign").generateDesignSchema), require("../controllers/campaignDesignController").generate);
 
 router.post("/", validate(createWaitlistSchema), create);
 router.get("/", list);

@@ -1,4 +1,8 @@
 function validateEnv() {
+  if (process.env.GEMINI_MODEL && !/^[a-zA-Z0-9._-]+$/.test(process.env.GEMINI_MODEL)) throw new Error("Invalid GEMINI_MODEL");
+  if (process.env.AI_DAILY_LIMIT && (!/^\d+$/.test(process.env.AI_DAILY_LIMIT) || Number(process.env.AI_DAILY_LIMIT) < 1 || Number(process.env.AI_DAILY_LIMIT) > 1000)) throw new Error("AI_DAILY_LIMIT must be an integer from 1 to 1000");
+  const { emailProvider, brevoConfig } = require("../config/email");
+  if (emailProvider() === "brevo") brevoConfig();
   require("../config/redis").validateRedisUrl(process.env.REDIS_URL);
   if (process.env.EMAIL_DELIVERY_MODE && !["inline", "queue"].includes(process.env.EMAIL_DELIVERY_MODE)) {
     throw new Error("EMAIL_DELIVERY_MODE must be inline or queue");

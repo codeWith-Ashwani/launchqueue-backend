@@ -5,6 +5,7 @@ describe("Environment Validation Unit Tests", () => {
 
   beforeEach(() => {
     process.env = { ...originalEnv };
+    process.env.EMAIL_PROVIDER = "smtp";
   });
 
   afterAll(() => {
@@ -31,5 +32,28 @@ describe("Environment Validation Unit Tests", () => {
     process.env.CLIENT_URL = "http://localhost:5173";
 
     expect(() => validateEnv()).toThrow(/Missing required environment variables/i);
+  });
+
+  it("rejects unsupported email providers", () => {
+    process.env.EMAIL_PROVIDER = "unknown";
+    expect(() => validateEnv()).toThrow("EMAIL_PROVIDER must be smtp or brevo");
+  });
+
+  it("requires the Brevo API key", () => {
+    process.env.EMAIL_PROVIDER = "brevo"; delete process.env.BREVO_API_KEY;
+    expect(() => validateEnv()).toThrow("Brevo requires BREVO_API_KEY");
+  });
+
+  it.each(["", "LaunchQueue <sender@example.com>", "invalid"])("rejects an invalid Brevo sender: %s", (sender) => {
+    process.env.EMAIL_PROVIDER = "brevo"; process.env.BREVO_API_KEY = "synthetic-key";
+    process.env.EMAIL_FROM = sender;
+    expect(() => validateEnv()).toThrow("Brevo requires EMAIL_FROM");
+  });
+
+  it("accepts HTTPS delivery without SMTP credentials", () => {
+    process.env.NODE_ENV = "test"; process.env.EMAIL_PROVIDER = "brevo";
+    process.env.BREVO_API_KEY = "synthetic-key"; process.env.EMAIL_FROM = "sender@example.com";
+    delete process.env.EMAIL_USER; delete process.env.EMAIL_PASS;
+    expect(() => validateEnv()).not.toThrow();
   });
 });

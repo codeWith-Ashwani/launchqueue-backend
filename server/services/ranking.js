@@ -31,7 +31,7 @@ async function signupState(signup, waitlist, alreadyJoined = false) {
     position: ranked.currentPosition,
     basePosition: signup.basePosition,
     referralCount: signup.referralCount || 0,
-    positionsGained: Math.max(0, signup.basePosition - ranked.currentPosition),
+    positionsGained: Math.max(0, (signup.initialPosition ?? signup.basePosition) - ranked.currentPosition),
     refCode: signup.refCode,
     email: signup.email,
     waitlistName: waitlist.name,
