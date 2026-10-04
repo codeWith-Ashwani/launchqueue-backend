@@ -5,6 +5,7 @@ const { designDraftSchema } = require("../validators/campaignDesign");
 const failure = (message, status) => Object.assign(new Error(message), { status });
 
 async function providerFailure(response) {
+  let providerReason;
   let code = response.status === 429 ? "AI_PROVIDER_QUOTA" : "AI_PROVIDER_UNAVAILABLE";
   let message = response.status === 429 ? "Gemini's free-tier limit was reached. Try later or continue editing manually." : "AI design is temporarily unavailable. Your current draft is unchanged.";
   if ([400, 401, 403, 404].includes(response.status)) {
@@ -12,19 +13,36 @@ async function providerFailure(response) {
     try {
       const payload = await response.json();
       const reasons = payload.error?.details?.map((detail) => detail.reason) || [];
+      const allowedReasons = ["API_KEY_INVALID", "API_KEY_SERVICE_BLOCKED", "API_KEY_IP_ADDRESS_BLOCKED", "API_KEY_HTTP_REFERRER_BLOCKED", "SERVICE_DISABLED", "CONSUMER_INVALID", "BILLING_DISABLED", "ACCESS_TOKEN_SCOPE_INSUFFICIENT", "IAM_PERMISSION_DENIED"];
+      providerReason = allowedReasons.find((reason) => reasons.includes(reason));
+      const detail = typeof payload.error?.message === "string" ? payload.error.message : "";
+      // Classify known provider messages, but never return their text or unknown reason values.
+      if (response.status === 403 && !providerReason) {
+        if (/project (?:has been|is) denied access/i.test(detail)) providerReason = "PROJECT_ACCESS_DENIED";
+        else if (/api key.*(?:reported.*leaked|blocked|suspended)/i.test(detail)) providerReason = "KEY_BLOCKED";
+        else if (/requests to this api.*are blocked/i.test(detail)) providerReason = "API_METHOD_BLOCKED";
+        else if (/api.*(?:has not been used|is disabled|not enabled)/i.test(detail)) providerReason = "SERVICE_DISABLED";
+        else if (/(?:location|region|country).*not supported/i.test(detail)) providerReason = "LOCATION_UNSUPPORTED";
+      }
       if (reasons.includes("API_KEY_INVALID") || response.status === 401) {
         code = "AI_API_KEY_INVALID";
         message = "The AI provider rejected the server API key. Update GEMINI_API_KEY on the backend; manual editing is still available.";
       } else if (reasons.some((reason) => ["API_KEY_SERVICE_BLOCKED", "API_KEY_IP_ADDRESS_BLOCKED", "API_KEY_HTTP_REFERRER_BLOCKED", "SERVICE_DISABLED", "CONSUMER_INVALID"].includes(reason)) || response.status === 403) {
         code = "AI_API_ACCESS_DENIED";
         message = "The AI provider denied access for this server key or project. Check the backend key's API restrictions and project access.";
+        if (providerReason === "PROJECT_ACCESS_DENIED") message = "Google has denied access to this project. Check the project's access status with Google AI Studio support; changing keys alone will not resolve a project restriction.";
+        else if (providerReason === "SERVICE_DISABLED") message = "The Gemini API is disabled for the project used by the backend key. Enable it in that key's project.";
+        else if (["API_KEY_SERVICE_BLOCKED", "API_METHOD_BLOCKED"].includes(providerReason)) message = "Google's API restrictions block this request. Check the backend key's Gemini API binding and allowed methods.";
+        else if (providerReason === "KEY_BLOCKED") message = "Google has blocked this API key. Check its status in AI Studio and configure an active key on the backend.";
+        else if (providerReason === "API_KEY_IP_ADDRESS_BLOCKED") message = "The backend's outbound IP address is not allowed by this key. Update its IP restrictions for Render.";
+        else if (providerReason === "LOCATION_UNSUPPORTED") message = "Google does not support this request's location. Check the backend hosting region against Gemini's supported regions.";
       } else if (response.status === 404) {
         message = "The configured AI model is unavailable to this project. Update GEMINI_MODEL on the backend; manual editing is still available.";
       }
     } catch { /* Return only our fixed diagnostics when the provider body cannot be read. */ }
   }
   await response.body?.cancel().catch(() => {});
-  return Object.assign(failure(message, response.status === 429 ? 429 : 502), { code, providerStatus: response.status });
+  return Object.assign(failure(message, response.status === 429 ? 429 : 502), { code, providerStatus: response.status, ...(providerReason ? { providerReason } : {}) });
 }
 
 async function reserveGeneration(founderId) {

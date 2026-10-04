@@ -58,5 +58,18 @@ describe("Gemini design transport", () => {
     catch (caught) { error = caught; }
     expect(error).toMatchObject({ status: 502, providerStatus: status, code });
     expect(error.message).not.toMatch(/private prompt|synthetic-gemini-key|PRIVATE_UNKNOWN_REASON/);
+    if (reason === "PRIVATE_UNKNOWN_REASON") expect(error).not.toHaveProperty("providerReason");
+  });
+  it.each([
+    ["Your project has been denied access. Please contact support.", "PROJECT_ACCESS_DENIED"],
+    ["Your API key was reported as leaked. Please use another API key.", "KEY_BLOCKED"],
+    ["Requests to this API method GenerateContent are blocked.", "API_METHOD_BLOCKED"],
+    ["Generative Language API has not been used in project 123 before or it is disabled.", "SERVICE_DISABLED"],
+    ["User location is not supported for the API use.", "LOCATION_UNSUPPORTED"],
+  ])("classifies known access failures without exposing provider response text", async (message, providerReason) => {
+    const json = async () => ({ error: { message: `${message} synthetic-gemini-key private prompt` } });
+    const error = await generateDesign(input, { fetchImpl: async () => ({ ok: false, status: 403, json }) }).catch((caught) => caught);
+    expect(error).toMatchObject({ providerReason, status: 502 });
+    expect(error.message).not.toMatch(/synthetic-gemini-key|private prompt/);
   });
 });
