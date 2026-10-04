@@ -78,41 +78,41 @@ The backend follows an MVC-inspired layered architecture separating routes, cont
 ```mermaid
 flowchart TD
     subgraph Ingress ["Ingress & Middleware Layer"]
-        REQ[Incoming HTTP Request] --> SEC[Helmet & CORS]
-        SEC --> COOKIE[Cookie Parser & JSON Parser]
-        COOKIE --> RATE[Express Rate Limiters]
-        RATE --> ROUTER[Express Router /api/*]
+        REQ["Incoming HTTP Request"] --> SEC["Helmet & CORS"]
+        SEC --> COOKIE["Cookie Parser & JSON Parser"]
+        COOKIE --> RATE["Express Rate Limiters"]
+        RATE --> ROUTER["Express Router /api/*"]
     end
 
     subgraph Routes ["Route Handlers"]
-        ROUTER --> R_AUTH[/api/auth]
-        ROUTER --> R_WAITLIST[/api/waitlists]
-        ROUTER --> R_SIGNUP[/api/w]
-        ROUTER --> R_PAYMENT[/api/payments]
-        ROUTER --> R_DOCS[/api/docs]
+        ROUTER --> R_AUTH["/api/auth"]
+        ROUTER --> R_WAITLIST["/api/waitlists"]
+        ROUTER --> R_SIGNUP["/api/w"]
+        ROUTER --> R_PAYMENT["/api/payments"]
+        ROUTER --> R_DOCS["/api/docs"]
     end
 
     subgraph Controllers ["Controller Layer"]
-        R_AUTH --> C_AUTH[authController.js]
-        R_WAITLIST --> C_WAITLIST[waitlistController.js]
-        R_WAITLIST --> C_DASH[dashboardController.js]
-        R_SIGNUP --> C_SIGNUP[signupController.js]
-        R_PAYMENT --> C_PAYMENT[paymentController.js]
+        R_AUTH --> C_AUTH["authController.js"]
+        R_WAITLIST --> C_WAITLIST["waitlistController.js"]
+        R_WAITLIST --> C_DASH["dashboardController.js"]
+        R_SIGNUP --> C_SIGNUP["signupController.js"]
+        R_PAYMENT --> C_PAYMENT["paymentController.js"]
     end
 
     subgraph Services ["Service & Utility Layer"]
-        VAL[Zod Request Validation]
-        POS[calculatePosition.js]
-        MAIL[sendEmail.js / Nodemailer]
-        GOOGLE[google-auth-library]
-        HMAC[crypto HMAC SHA-256]
+        VAL["Zod Request Validation"]
+        POS["calculatePosition.js"]
+        MAIL["sendEmail.js / Nodemailer"]
+        GOOGLE["google-auth-library"]
+        HMAC["crypto HMAC SHA-256"]
     end
 
     subgraph Database ["Data Layer (MongoDB / Mongoose)"]
-        M_FOUNDER[(Founder Model)]
-        M_WAITLIST[(Waitlist Model)]
-        M_SIGNUP[(Signup Model)]
-        M_PAGEVIEW[(PageView Model)]
+        M_FOUNDER[("Founder Model")]
+        M_WAITLIST[("Waitlist Model")]
+        M_SIGNUP[("Signup Model")]
+        M_PAGEVIEW[("PageView Model")]
     end
 
     C_AUTH --> VAL & GOOGLE & M_FOUNDER & MAIL
