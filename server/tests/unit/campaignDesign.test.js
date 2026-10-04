@@ -14,6 +14,7 @@ describe("Gemini design transport", () => {
     expect(options.headers["x-goog-api-key"]).toBe("synthetic-gemini-key");
     const body = JSON.parse(options.body);
     expect(JSON.parse(body.contents[0].parts[0].text)).toEqual(input);
+    expect(body.generationConfig.responseFormat.text.mimeType).toBe("APPLICATION_JSON");
     expect(body.generationConfig.responseFormat.text.schema.properties.pageDesign).toBeDefined();
     expect(options.signal).toBeInstanceOf(AbortSignal);
     expect(options.redirect).toBe("error");
