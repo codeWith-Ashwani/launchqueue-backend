@@ -19,8 +19,8 @@ async function visitors(waitlistId, filter = {}) {
     totalVisitors: result.unique[0]?.count || 0,
   };
 }
-async function topReferrers(waitlistId, filter = {}, limit = 10) {
-  const credits = await Signup.aggregate([
+async function topReferrers(waitlistId, filter = {}, limit = 10, pagePromise = null, summaryPromise = null) {
+  const credits = summaryPromise ? (await summaryPromise)[0].credits : await Signup.aggregate([
     {
       $match: {
         waitlistId,
@@ -34,13 +34,19 @@ async function topReferrers(waitlistId, filter = {}, limit = 10) {
     { $limit: limit },
   ]);
   if (!credits.length) return [];
-  const ranked = await rankedReferrers(waitlistId, credits.map((c) => c._id));
+  const page = pagePromise ? await pagePromise : [];
+  const cached = page.filter((row) => row.currentPosition !== null && credits.some((credit) => credit._id === row.refCode));
+  const ranked = cached.length === credits.length ? cached : await rankedReferrers(waitlistId, credits.map((c) => c._id));
   return credits.flatMap((c) => {
     const row = ranked.find((s) => s.refCode === c._id);
     return row
       ? [
           {
-            ...row,
+            _id: row._id,
+            email: row.email,
+            refCode: row.refCode,
+            currentPosition: row.currentPosition,
+            status: row.status,
             totalReferralCount: row.referralCount,
             referralCount: c.count,
           },
@@ -64,6 +70,8 @@ async function getStats(req, res) {
     today.setUTCHours(0, 0, 0, 0);
     const start = new Date(today);
     start.setUTCDate(start.getUTCDate() - 29);
+    const pagePromise = observe("mongo.analytics.ranking", () => rankedPage(waitlist._id, page, limit));
+    let summaryPromise;
     const [summary, traffic, signups, referrers] = await Promise.all(
       [
         () =>
@@ -123,14 +131,21 @@ async function getStats(req, res) {
                   },
                   { $sort: { _id: 1 } },
                 ],
+                credits: [
+                  { $match: { verificationState: { $ne: "pending" }, referredBy: { $ne: null } } },
+                  { $group: { _id: "$referredBy", count: { $sum: 1 } } },
+                  { $sort: { count: -1, _id: 1 } },
+                  { $limit: 10 },
+                ],
               },
             },
           ]),
         () => visitors(waitlist._id),
-        () => rankedPage(waitlist._id, page, limit),
-        () => topReferrers(waitlist._id),
-      ].map((action, i) =>
-        observe(
+        () => pagePromise,
+        () => topReferrers(waitlist._id, {}, 10, pagePromise, summaryPromise),
+      ].map((action, i) => {
+        if (i === 2) return pagePromise;
+        const task = observe(
           [
             "mongo.analytics.summary",
             "mongo.analytics.visitors",
@@ -138,8 +153,11 @@ async function getStats(req, res) {
             "mongo.analytics.referrers",
           ][i],
           action,
-        ),
-      ),
+        );
+        // Start the shared summary before its dependent referrer action.
+        if (i === 0) summaryPromise = task;
+        return task;
+      }),
     );
     const totals = summary[0].totals[0] || {
       total: 0,

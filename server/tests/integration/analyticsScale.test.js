@@ -41,6 +41,21 @@ describe("Bounded analytics and export", () => {
     expect(result.body.totalSignups).toBe(1); expect(result.body.topReferrers[0].email).toBe("old@example.com");
     expect(result.body.topReferrers[0].referralCount).toBe(1);
   });
+  it("reuses page ranks for overlapping referrers and falls back for other pages", async () => {
+    await Signup.create([
+      { waitlistId: waitlist._id, email: "leader@example.com", refCode: "LEADER", basePosition: 1, currentPosition: 1, referralCount: 2 },
+      { waitlistId: waitlist._id, email: "joiner@example.com", refCode: "JOINER", referredBy: "LEADER", basePosition: 2, currentPosition: 2 },
+    ]);
+    const transactions = jest.spyOn(Signup.db, "transaction");
+    try {
+      const first = await stats({ page: 1, limit: 1 });
+      expect(first.status).toBe(200); expect(first.body.topReferrers[0]).toMatchObject({ refCode: "LEADER", currentPosition: 1, referralCount: 1, totalReferralCount: 2 });
+      expect(transactions).not.toHaveBeenCalled();
+      const second = await stats({ page: 2, limit: 1 });
+      expect(second.status).toBe(200); expect(second.body.topReferrers).toEqual(first.body.topReferrers);
+      expect(transactions).toHaveBeenCalledTimes(1);
+    } finally { transactions.mockRestore(); }
+  });
   it("neutralizes spreadsheet formulas in exported subscriber fields", async () => {
     await Signup.create({ waitlistId: waitlist._id, email: "=formula@example.com", refCode: "FORMULA", referredBy: "+SUM(1,2)", basePosition: 1, currentPosition: 1 });
     const result = await request(app).get(`/api/waitlists/${waitlist._id}/export`).set("Authorization", `Bearer ${token}`);

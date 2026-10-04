@@ -91,6 +91,7 @@ function pagePipeline(waitlistId, page, limit) {
     {
       $project: {
         email: 1,
+        refCode: 1,
         referralCount: 1,
         status: 1,
         invitationState: 1,
@@ -140,13 +141,23 @@ async function rankedReferrers(waitlistId, refCodes) {
     .select("email refCode status referralCount basePosition priorityOffset").session(session).lean();
   if (!candidates.length) return [];
   const group = { _id: null };
+  const orders = [];
   candidates.forEach((row, index) => {
     const order = { score: row.basePosition - (row.referralCount || 0) * 5 + (row.priorityOffset || 0), sequence: row.basePosition, id: row._id };
+    orders.push(order);
     group[`rank${index}`] = { $sum: { $cond: [{ $lt: [{ $cmp: ["$queueOrder", { $literal: order }] }, 0] }, 1, 0] } };
   });
+  const max = orders.reduce((a, b) => b.score > a.score || (b.score === a.score && (b.sequence > a.sequence || (b.sequence === a.sequence && b.id.toString() > a.id.toString()))) ? b : a);
   const [counts] = await Signup.aggregate([
     { $match: { waitlistId, verificationState: { $ne: "pending" } } },
-    { $project: { queueOrder: { score: { $add: [{ $subtract: ["$basePosition", { $multiply: [{ $ifNull: ["$referralCount", 0] }, 5] }] }, { $ifNull: ["$priorityOffset", 0] }] }, sequence: "$basePosition", id: "$_id" } } },
+    { $set: { queueScore: { $add: [{ $subtract: ["$basePosition", { $multiply: [{ $ifNull: ["$referralCount", 0] }, 5] }] }, { $ifNull: ["$priorityOffset", 0] }] } } },
+    // Later keys cannot precede any candidate, so they need no per-target comparisons.
+    { $match: { $expr: { $or: [
+      { $lt: ["$queueScore", max.score] },
+      { $and: [{ $eq: ["$queueScore", max.score] }, { $lt: ["$basePosition", max.sequence] }] },
+      { $and: [{ $eq: ["$queueScore", max.score] }, { $eq: ["$basePosition", max.sequence] }, { $lt: ["$_id", max.id] }] },
+    ] } } },
+    { $project: { queueOrder: { score: "$queueScore", sequence: "$basePosition", id: "$_id" } } },
     { $group: group },
   ]).session(session);
   return candidates.map(({ basePosition: _base, priorityOffset: _offset, ...row }, index) => ({ ...row, currentPosition: (counts?.[`rank${index}`] || 0) + 1 }));
