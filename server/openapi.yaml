@@ -53,7 +53,7 @@ paths:
       responses:
         '200': { description: Platform aggregate metrics }
         '401': { description: Authentication required }
-        '403': { description: Account ID is not in ADMIN_FOUNDER_IDS }
+        '403': { description: Account has not been approved as an administrator in the database }
   /api/admin/founders:
     get: &adminListOperation
       summary: Search and paginate founders without private authentication or billing secrets

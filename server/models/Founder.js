@@ -52,6 +52,8 @@ const founderSchema = new mongoose.Schema(
     },
     sessionVersion: { type: Number, default: 0 },
     usageVersion: { type: Number, default: 0 },
+    // Only a trusted database operator can approve admin access; never accept this from account forms.
+    adminApproved: { type: Boolean, default: false },
     subscriptionStatus: String,
     subscriptionEndsAt: Date,
     billingUpdatedAt: Date,

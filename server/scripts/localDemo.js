@@ -22,8 +22,7 @@ async function startDemo({ port = 5051, clientUrl = "http://localhost:5173" } = 
     for (const model of Object.values(mongoose.models)) await model.deleteMany({});
     inbox.length = 0;
     const founder = await Founder.create({ email: "demo@example.com", name: "Demo Founder", password: await bcrypt.hash("DemoPassword123!", 10), plan: "pro" });
-    const admin = await Founder.create({ email: "admin@example.com", name: "Demo Admin", password: await bcrypt.hash("DemoAdmin123!", 10) });
-    process.env.ADMIN_FOUNDER_IDS = String(admin._id);
+    await Founder.create({ email: "admin@example.com", name: "Demo Admin", password: await bcrypt.hash("DemoAdmin123!", 10), adminApproved: true });
     const waitlist = await Waitlist.create({ founderId: founder._id, name: "Interview Demo", slug: "interview-demo", description: "A focused workspace for the next generation of independent makers.", accentColor: "#7663b9", discoverable: true, signupSequence: 120 });
     await Signup.insertMany(Array.from({ length: 120 }, (_, i) => ({ waitlistId: waitlist._id, email: `subscriber${i}@example.com`, refCode: `DEMO${i}`,
       basePosition: i + 1, currentPosition: i + 1, initialPosition: i + 1, verificationState: "verified", verifiedAt: new Date() })));

@@ -13,9 +13,10 @@ describe("Product discovery and platform administration", () => {
   afterAll(async () => { if (previousIds === undefined) delete process.env.ADMIN_FOUNDER_IDS; else process.env.ADMIN_FOUNDER_IDS = previousIds; await closeDb(); });
   beforeEach(async () => {
     await clearDb();
-    admin = await Founder.create({ email: "admin@example.com", name: "Admin", password: "private hash" });
+    admin = await Founder.create({ email: "admin@example.com", name: "Admin", password: "private hash", adminApproved: true });
     founder = await Founder.create({ email: "founder@example.com", name: "Founder", resetPasswordTokenHash: "private-reset", customerPortalUrl: "https://private.example.com", plan: "pro" });
-    process.env.ADMIN_FOUNDER_IDS = String(admin._id);
+    // The old environment allowlist must not bypass database approval.
+    process.env.ADMIN_FOUNDER_IDS = String(founder._id);
     adminToken = tokenFor(admin._id); founderToken = tokenFor(founder._id);
     product = await Waitlist.create({ founderId: founder._id, name: "Listed product", slug: "listed-product", discoverable: true });
     await Signup.create({ waitlistId: product._id, email: "private-subscriber@example.com", refCode: "private-ref", basePosition: 1, currentPosition: 1, verificationState: "verified", verifiedAt: new Date() });
@@ -26,10 +27,24 @@ describe("Product discovery and platform administration", () => {
     expect((await request(app).get(`/api/admin/${path}`).set("Authorization", `Bearer ${adminToken}`)).status).toBe(200);
   });
   it("does not allow an editable email or profile payload to grant admin access", async () => {
-    const res = await request(app).patch("/api/auth/profile").set("Authorization", `Bearer ${founderToken}`).send({ email: "owner@example.com", isAdmin: true, role: "admin" });
+    const res = await request(app).patch("/api/auth/profile").set("Authorization", `Bearer ${founderToken}`).send({ email: "owner@example.com", isAdmin: true, role: "admin", adminApproved: true });
     expect(res.status).toBe(200); expect(res.body.founder.isAdmin).toBe(false);
+    expect((await Founder.findById(founder._id)).adminApproved).toBe(false);
     const me = await request(app).get("/api/auth/me").set("Authorization", `Bearer ${adminToken}`);
     expect(me.body.founder.isAdmin).toBe(true); expect(JSON.stringify(me.body)).not.toMatch(/private hash/);
+  });
+  it("requires explicit database approval at signup and honors approval and revocation with the same session", async () => {
+    const signup = await request(app).post("/api/auth/register").send({ email: "new-admin@example.com", password: "StrongPassword123!", adminApproved: true, isAdmin: true });
+    expect(signup.status).toBe(201);
+    expect(signup.body.founder.isAdmin).toBe(false);
+    expect((await Founder.findOne({ email: "new-admin@example.com" })).adminApproved).toBe(false);
+    const access = () => request(app).get("/api/admin/overview").set("Authorization", `Bearer ${founderToken}`);
+    expect((await access()).status).toBe(403);
+    await Founder.updateOne({ _id: founder._id }, { $set: { adminApproved: true } });
+    expect((await access()).status).toBe(200);
+    await Founder.updateOne({ _id: founder._id }, { $set: { adminApproved: false } });
+    expect((await access()).status).toBe(403);
+    expect((await request(app).get("/api/auth/me").set("Authorization", `Bearer ${founderToken}`)).body.founder.isAdmin).toBe(false);
   });
   it("excludes pending joins, opted-out, paused, hidden, and ownerless campaigns from discovery", async () => {
     await Signup.create({ waitlistId: product._id, email: "pending@example.com", refCode: "pending-ref", basePosition: 2, currentPosition: 2, verificationState: "pending" });

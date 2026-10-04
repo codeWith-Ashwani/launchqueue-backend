@@ -71,11 +71,13 @@ const strictCors = cors({
     }
   },
   credentials: true,
+  maxAge: 600,
 });
 
 const openCors = cors({
   origin: true,
   credentials: true,
+  maxAge: 600,
 });
 
 app.use("/api/auth", browserRequest, strictCors, require("./routes/auth"));
