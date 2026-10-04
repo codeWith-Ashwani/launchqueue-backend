@@ -65,6 +65,7 @@ const resetPasswordSchema = z.object({
 });
 
 const createWaitlistSchema = z.object({
+  discoverable: z.boolean().optional().default(false),
   name: z
     .string({ required_error: "Waitlist name is required", invalid_type_error: "Waitlist name must be a string" })
     .trim()
@@ -96,6 +97,7 @@ const milestoneItemSchema = z.object({
 });
 
 const updateWaitlistSchema = z.object({
+  discoverable: z.boolean().optional(),
   name: z.string().trim().min(1, "Waitlist name cannot be empty").max(100).optional(),
   description: z.string().max(4000).optional(),
   thankYouMessage: z.string().max(4000).optional(),

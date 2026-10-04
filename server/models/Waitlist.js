@@ -28,6 +28,8 @@ const waitlistSchema = new mongoose.Schema(
       default: "Thanks for joining! Share your link to move up the list.",
     },
     signupSequence: { type: Number, default: 0 },
+    discoverable: { type: Boolean, default: false },
+    discoveryHidden: { type: Boolean, default: false },
     queueVersion: { type: Number, default: 0 },
     paused: {
       type: Boolean,
@@ -68,4 +70,5 @@ const waitlistSchema = new mongoose.Schema(
 );
 
 waitlistSchema.index({ founderId: 1, createdAt: -1 });
+waitlistSchema.index({ discoverable: 1, paused: 1, discoveryHidden: 1 });
 module.exports = mongoose.model("Waitlist", waitlistSchema);

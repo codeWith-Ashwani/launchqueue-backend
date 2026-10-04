@@ -92,7 +92,7 @@ async function update(req, res) {
       "name", "description", "thankYouMessage", "paused",
       "heroHeadline", "heroSubheadline", "heroImageUrl",
       "accentColor", "ctaText", "features", "milestones",
-      "pageDesign",
+      "pageDesign", "discoverable",
     ];
     const updates = {};
     for (const field of allowedFields) {

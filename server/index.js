@@ -79,6 +79,8 @@ const openCors = cors({
 });
 
 app.use("/api/auth", browserRequest, strictCors, require("./routes/auth"));
+app.use("/api/admin", browserRequest, strictCors, require("./routes/admin"));
+app.use("/api/discover", strictCors, require("./routes/discovery"));
 app.use("/api/waitlists", browserRequest, strictCors, require("./routes/waitlists"));
 app.use("/api/payments", (req, res, next) => req.path === "/webhook" ? next() : browserRequest(req, res, next), strictCors, require("./routes/payments"));
 app.use("/api/w", openCors, require("./routes/signups"));

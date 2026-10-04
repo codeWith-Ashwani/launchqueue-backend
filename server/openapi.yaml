@@ -12,6 +12,103 @@ servers:
     description: Production API server
 
 paths:
+  /api/auth/config:
+    get:
+      summary: Public Google OAuth web client configuration
+      tags: [Authentication]
+      responses:
+        '200':
+          description: Public client ID only; null when Google sign-in is unavailable
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  googleClientId: { type: string, nullable: true }
+  /api/auth/overview:
+    get:
+      summary: Current founder's campaigns, signup usage, and effective plan limits
+      tags: [Authentication]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        '200': { description: Own campaign summaries and usage; null limits mean unlimited }
+        '401': { description: Authentication required }
+  /api/discover/leaderboard:
+    get:
+      summary: Public product leaderboard with confirmed signup counts
+      description: Only opted-in, active, non-hidden campaigns with existing founders. Pending joins are excluded. Weekly rankings use verification time, with creation time for historical members. No subscriber or founder identities are returned.
+      tags: [Discovery]
+      parameters:
+        - { in: query, name: period, schema: { type: string, enum: [week, all], default: week } }
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 24, default: 12 } }
+      responses:
+        '200': { description: Ranked products, period, and updatedAt timestamp }
+        '400': { description: Invalid query }
+        '429': { description: Rate limit exceeded }
+  /api/admin/overview:
+    get:
+      summary: Platform totals, signup verification, subscriptions, and email delivery states
+      tags: [Administration]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        '200': { description: Platform aggregate metrics }
+        '401': { description: Authentication required }
+        '403': { description: Account ID is not in ADMIN_FOUNDER_IDS }
+  /api/admin/founders:
+    get: &adminListOperation
+      summary: Search and paginate founders without private authentication or billing secrets
+      tags: [Administration]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      parameters:
+        - { in: query, name: page, schema: { type: integer, minimum: 1, default: 1 } }
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 50, default: 20 } }
+        - { in: query, name: search, schema: { type: string, maxLength: 100 } }
+      responses:
+        '200': { description: Items and pagination metadata }
+        '400': { description: Invalid query }
+        '401': { description: Authentication required }
+        '403': { description: Administrator access required }
+  /api/admin/campaigns:
+    get:
+      <<: *adminListOperation
+      summary: Search campaigns, owners, signup counts, and discovery visibility
+      parameters:
+        - { in: query, name: page, schema: { type: integer, minimum: 1, default: 1 } }
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 50, default: 20 } }
+        - { in: query, name: search, schema: { type: string, maxLength: 100 } }
+        - { in: query, name: founderId, schema: { type: string, pattern: '^[a-fA-F0-9]{24}$' } }
+  /api/admin/subscribers:
+    get:
+      <<: *adminListOperation
+      summary: Search subscriber emails, verification, and invitation states
+      parameters:
+        - { in: query, name: page, schema: { type: integer, minimum: 1, default: 1 } }
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 50, default: 20 } }
+        - { in: query, name: search, schema: { type: string, maxLength: 100 } }
+        - { in: query, name: waitlistId, schema: { type: string, pattern: '^[a-fA-F0-9]{24}$' } }
+  /api/admin/campaigns/{id}/discovery:
+    patch:
+      summary: Hide or restore a product on discovery with an audit entry
+      tags: [Administration]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, pattern: '^[a-fA-F0-9]{24}$' } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [discoveryHidden]
+              properties:
+                discoveryHidden: { type: boolean }
+      responses:
+        '200': { description: Updated moderation state }
+        '400': { description: Invalid payload or campaign ID }
+        '401': { description: Authentication required }
+        '403': { description: Administrator access required }
+        '404': { description: Campaign not found }
   # ============================================================================
   # Authentication (/api/auth)
   # ============================================================================

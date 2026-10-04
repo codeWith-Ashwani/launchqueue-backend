@@ -24,10 +24,12 @@ const {
 } = require("../validators/schemas");
 
 router.post("/register", authLimiter, validate(registerSchema), register);
+router.get("/config", (_req, res) => res.set("Cache-Control", "no-store").json({ googleClientId: (process.env.GOOGLE_CLIENT_ID || "").trim() || null }));
 router.post("/login", authLimiter, validate(loginSchema), login);
 router.post("/google", authLimiter, googleLogin);
 router.post("/logout", logout);
 router.get("/me", authMiddleware, getMe);
+router.get("/overview", authMiddleware, require("../controllers/profileOverviewController"));
 router.patch("/profile", authMiddleware, validate(updateProfileSchema), updateProfile);
 router.patch("/password", authMiddleware, validate(changePasswordSchema), changePassword);
 router.post("/forgot-password", authLimiter, validate(requestPasswordResetSchema), requestPasswordReset);

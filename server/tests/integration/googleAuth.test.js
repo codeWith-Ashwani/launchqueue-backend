@@ -6,11 +6,15 @@ const Founder = require("../../models/Founder");
 const { connectDb, closeDb, clearDb } = require("../setupDb");
 
 describe("Google OAuth Integration Tests", () => {
+  const originalClientId = process.env.GOOGLE_CLIENT_ID;
   beforeAll(async () => {
+    process.env.GOOGLE_CLIENT_ID = "test.apps.googleusercontent.com";
     await connectDb();
   });
 
   afterAll(async () => {
+    if (originalClientId === undefined) delete process.env.GOOGLE_CLIENT_ID;
+    else process.env.GOOGLE_CLIENT_ID = originalClientId;
     await closeDb();
   });
 

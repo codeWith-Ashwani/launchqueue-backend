@@ -1,4 +1,4 @@
-const { effectivePlan } = require("../services/entitlements");
+const { founderProfile } = require("../services/founderProfile");
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
@@ -51,13 +51,7 @@ async function register(req, res) {
 
     res.status(201).json({
       token,
-      founder: {
-        id: founder._id,
-        name: founder.name,
-        email: founder.email,
-        plan: effectivePlan(founder),
-        customerPortalUrl: founder.customerPortalUrl,
-      },
+      founder: founderProfile(founder),
     });
   } catch (err) {
     console.error("Register error:", { requestId: req.requestId, code: err.code || "INTERNAL" });
@@ -94,13 +88,7 @@ async function login(req, res) {
 
     res.json({
       token,
-      founder: {
-        id: founder._id,
-        name: founder.name,
-        email: founder.email,
-        plan: effectivePlan(founder),
-        customerPortalUrl: founder.customerPortalUrl,
-      },
+      founder: founderProfile(founder),
     });
   } catch (err) {
     console.error("Login error:", { requestId: req.requestId, code: err.code || "INTERNAL" });
@@ -113,6 +101,7 @@ async function login(req, res) {
 // POST /api/auth/google  (public, rate-limited)
 async function googleLogin(req, res) {
   try {
+    if (!process.env.GOOGLE_CLIENT_ID?.trim()) return res.status(503).json({ error: "Google sign-in is temporarily unavailable. Please continue with email." });
     const { credential } = req.body;
 
     if (!credential || typeof credential !== "string") {
@@ -158,13 +147,7 @@ async function googleLogin(req, res) {
 
     res.json({
       token,
-      founder: {
-        id: founder._id,
-        name: founder.name,
-        email: founder.email,
-        plan: effectivePlan(founder),
-        customerPortalUrl: founder.customerPortalUrl,
-      },
+      founder: founderProfile(founder),
     });
   } catch (err) {
     console.error("Google login error:", { requestId: req.requestId, code: err.code || "INTERNAL" });
@@ -198,14 +181,8 @@ async function logout(req, res) {
 
 // GET /api/auth/me  (protected)
 async function getMe(req, res) {
-  res.json({
-    founder: {
-      id: req.founder._id,
-      name: req.founder.name,
-      email: req.founder.email,
-      plan: effectivePlan(req.founder),
-      customerPortalUrl: req.founder.customerPortalUrl,
-    },
+  res.set("Cache-Control", "no-store").json({
+    founder: founderProfile(req.founder),
   });
 }
 
@@ -233,13 +210,7 @@ async function updateProfile(req, res) {
     ).select("-password");
 
     res.json({
-      founder: {
-        id: updatedFounder._id,
-        name: updatedFounder.name,
-        email: updatedFounder.email,
-        plan: effectivePlan(updatedFounder),
-        customerPortalUrl: updatedFounder.customerPortalUrl,
-      },
+      founder: founderProfile(updatedFounder),
     });
   } catch (err) {
     console.error("Update profile error:", { requestId: req.requestId, code: err.code || "INTERNAL" });
