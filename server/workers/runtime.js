@@ -13,6 +13,7 @@ async function startWorker(start) {
     const [, policy] = await connection.config("GET", "maxmemory-policy");
     if (policy !== "noeviction") throw new Error("Queue Redis requires maxmemory-policy=noeviction");
     await mongoose.connect(process.env.MONGO_URI);
+    require("../services/monitoring").start();
     const close = await start(connection);
     let stopping = false;
     const shutdown = async () => {
@@ -20,16 +21,16 @@ async function startWorker(start) {
       stopping = true;
       await close();
       connection.disconnect();
-      await mongoose.disconnect();
       await telemetry.stopTelemetry();
+      await mongoose.disconnect();
     };
     process.once("SIGTERM", shutdown);
     process.once("SIGINT", shutdown);
     return shutdown;
   } catch (err) {
     connection.disconnect();
-    await mongoose.disconnect();
     await telemetry.stopTelemetry();
+    await mongoose.disconnect();
     throw err;
   }
 }

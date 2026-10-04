@@ -90,6 +90,8 @@ The API and worker share MongoDB and Redis. Email intentions are committed along
 | `BillingEvent` | Webhook deduplication and subscription event processing |
 | `AIGenerationUsage` | Daily AI generation allowances |
 | `AdminAudit` | Administrator discovery moderation history |
+| `MonitoringBatch` | Bounded metric summaries with retry-safe IDs and seven day expiry |
+| `TraceSpan` | Sampled request and operation spans with seven day expiry |
 
 Unique indexes enforce one email per campaign and unique public slugs and referral codes. Campaign indexes support ownership queries, analytics, and discovery.
 
@@ -124,6 +126,7 @@ Endpoint names below are relative to their base path.
 | Product discovery | `/api/discover` | `GET leaderboard?period=week` or `period=all` | Public, rate limited |
 | Administration | `/api/admin` | `overview`, `founders`, `campaigns`, `subscribers` | Database-approved admin |
 | Discovery moderation | `/api/admin` | `PATCH campaigns/:id/discovery` | Database-approved admin, audited |
+| Service monitoring | `/api/admin` | `diagnostics`, `monitoring`, `traces`, `traces/:traceId` | Database-approved admin |
 | Billing | `/api/payments` | `checkout`, `portal` | Founder session |
 | Billing webhook | `/api/payments` | `POST webhook` | Provider HMAC signature |
 | Health | `/` | `health`, `ready` | Public |
@@ -183,6 +186,9 @@ The complete configuration template is [`server/.env.example`](server/.env.examp
 | `LEMONSQUEEZY_API_KEY`, `LEMONSQUEEZY_STORE_ID`, `LEMONSQUEEZY_WEBHOOK_SECRET` | Checkout and webhook configuration |
 | `LEMONSQUEEZY_STARTER_VARIANT_ID`, `LEMONSQUEEZY_PRO_VARIANT_ID`, `LEMONSQUEEZY_AGENCY_VARIANT_ID` | Plan variants |
 | `LEMONSQUEEZY_TEST_MODE` | Billing integration test mode |
+| `MONITORING_ENABLED` | Persist metric summaries and sampled traces in the existing MongoDB database; enabled outside tests by default |
+| `OTEL_TRACE_SAMPLE_RATE`, `OTEL_SERVICE_NAME` | Trace sampling from 0 to 1 (default 0.1) and API/worker service identity |
+| `OTEL_ENABLED`, `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | Optional additional export to an OTLP/HTTP collector |
 
 ## Admin access
 
@@ -216,15 +222,28 @@ Run from `server/`:
 
 ```sh
 npm run lint
+npm run contracts:check
 npm test
 npm audit --omit=dev --audit-level=high
 ```
 
-The backend suite contains **196 tests across 38 suites**, including Redis integrations. Tests cover authentication, database admin approval and revocation, ownership, concurrent verification and referral credit, queue ordering, private status recovery, AI draft validation, discovery moderation, analytics, exports, billing, email delivery, trace privacy, collector delivery, and diagnostics authorization.
+The backend suite contains **232 tests across 42 suites**, including Redis integrations. Tests cover authentication, database admin approval and revocation, ownership, concurrent verification and referral credit, queue ordering, private status recovery, AI draft validation, discovery moderation, analytics, exports, billing, email delivery, trace privacy, collector delivery, monitoring persistence, and API response contracts.
 
 MongoDB tests use isolated in-memory replica sets. Set `TEST_REDIS_URL` to a test Redis instance to include BullMQ and shared rate-limit integration tests; those suites are skipped locally when it is absent. GitHub Actions provisions Redis and runs the complete suite, lint, and production dependency audit on `main`, `feature/**`, and pull requests to `main`.
 
 The [frontend repository](https://github.com/codeWith-Ashwani/launchqueue) adds unit/component and Playwright coverage against the real isolated API. `npm run benchmark` measures paginated analytics with synthetic data.
+
+### API contract workflow
+
+[`server/contracts/api.js`](server/contracts/api.js) defines OpenAPI 3.1 responses and reuses Zod request validators. `npm run contracts:generate` validates the specification and generates `server/openapi.yaml`; CI rejects a stale generated file. Supertest responses are validated with Ajv, including signup's 202 response, pagination, CSV, admin authorization, and public identity boundaries. Negative tests prove that field removal, a changed field type, and public identity leakage fail validation.
+
+After an API change, regenerate the frontend's contract snapshot and TypeScript definitions. Its CI compares the snapshot with the pinned backend commit and compiles the typed request boundary. This makes API changes reviewable across both repositories.
+
+### Worker recovery drills
+
+Redis integration tests fork a real BullMQ worker and kill its process before sending, after provider acceptance, and after the MongoDB delivery transaction but before the job acknowledgement. Restarting the worker must recover the outbox, preserve the delivery key, and commit the invitation receipt atomically. Tests use isolated MongoDB, a namespaced Redis queue, and a loopback provider with idempotent acceptance.
+
+Brevo retries carry a stable outbox UUID in `headers.idempotencyKey`; its [provider deduplication window](https://developers.brevo.com/docs/heterogenous-versions-batch-emails) is bounded. SMTP receives a stable Message-ID, but SMTP acceptance followed by a process crash can cause a duplicate on retry. Delivery is at least once; the database invitation transition remains transactional.
 
 ## Performance and observability
 
@@ -232,18 +251,26 @@ Install [k6 2.3.0](https://github.com/grafana/k6/releases/tag/v2.3.0), then run 
 
 ```sh
 npm run performance:smoke
+npm run performance:stress
+npm run performance:referrals
 npm run performance:matrix
 ```
 
-The runner owns a temporary MongoDB replica set, creates synthetic subscribers and a temporary founder session, and accepts only its loopback API. The smoke test uses 1,000 subscribers, five virtual users, and 20 requests. The full matrix uses 1,000, 10,000, and 50,000 subscribers at one, five, and ten concurrent virtual users, with 50 requests per case. Every response must return 50 contiguous ranks and the correct total. Gates require p95 below `PERFORMANCE_P95_MS` (default 2,000 ms), zero request errors, and all checks passing. GitHub Actions verifies the pinned k6 binary's checksum, runs the smoke gate, and saves measurements as an artifact.
+The runner owns a temporary MongoDB replica set, enables persistent monitoring, creates synthetic subscribers and a temporary founder session, and accepts only its loopback API. The smoke test uses 1,000 subscribers, five virtual users, and 20 requests. The full matrix uses 1,000, 10,000, and 50,000 subscribers at one, five, and ten concurrent virtual users, with 50 requests per case. Every response must return 50 contiguous ranks and the correct total. Gates require p95 below `PERFORMANCE_P95_MS` (default 2,000 ms), zero request errors, and all checks passing. GitHub Actions verifies the pinned k6 binary's checksum, gates two 50,000-subscriber workloads (direct joins and credited referrals) with ten virtual users and 50 requests each, and saves measurements and query plans as an artifact.
 
 Reports include p50/p95, throughput, response size, and correctness. Generated reports remain in ignored `docs/performance/`. These warmed, closed-workload measurements describe this fixture; use the same environment and workload when comparing changes.
 
-A local Node 22 baseline measured p95 at **61 ms / 219 ms / 2,140 ms** for 1,000 / 10,000 / 50,000 subscribers with ten virtual users and 50 requests per case. All response checks passed with zero request errors. The 50,000-subscriber case exceeded the two-second gate, identifying a concrete target for ranking-query optimization rather than claiming production capacity.
+A local Node 22 baseline measured p95 at **61 ms / 219 ms / 2,140 ms** for 1,000 / 10,000 / 50,000 subscribers with ten virtual users and 50 requests per case. After replacing page-wide window ranking with a bounded sort followed by page rank assignment, the corresponding measurements were **102 ms / 205 ms / 735 ms**, with persistent monitoring enabled. All nine cases passed with zero errors and correct ranks. The large case improved by about **66%**; these local measurements describe the synthetic workload, not production capacity.
+
+The saved 50,000-row execution plans show both algorithms using the campaign index and examining the campaign's rows. The old window sort spilled to disk and sorted approximately 117 MB; the optimized page sort retained 50 rows, sorted approximately 32 KB, and avoided a disk spill. Referral scores remain computed dynamically; deeper pages retain more rows. Tests compare the page algorithm against full ranking across referrals, overrides, ties, pending members, and page boundaries. Top-referrer ranks use a snapshot transaction and a single campaign scan with preceding-key counts, avoiding a full queue window sort. A separate 50,000-member workload with ten active referrers measured 1,358 ms p95 at ten virtual users, with zero errors and correct ranks and credits. A concurrency test changes referral credit between candidate and count reads to verify snapshot consistency.
 
 Database-approved admins can read `GET /api/admin/diagnostics` for route latency, operation latency, process memory, event-loop delay, anonymous Web Vitals, email state counts, and the oldest unsent email age. Counters belong to one process and reset on restart; percentiles use the most recent 128 samples per label. Labels use route templates and fixed operation names, excluding resource IDs, emails, tokens, request bodies, and raw errors.
 
-OpenTelemetry exports sampled request and child-operation traces when `OTEL_ENABLED=true`, `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` points to an OTLP/HTTP collector's trace endpoint, and `OTEL_TRACE_SAMPLE_RATE` is set between zero and one. Export is disabled by default; diagnostics work independently. Worker deployments use the same telemetry settings with a distinct `OTEL_SERVICE_NAME`. Request logs include a trace ID when tracing is active; `Server-Timing` exposes application response duration to browser tools.
+Persistent monitoring starts automatically in the API and email worker outside tests, using the existing MongoDB connection. It batches metrics every ten seconds, bounds in-memory labels and retry batches, and uses stable batch IDs so a lost write acknowledgement cannot duplicate counts. Metrics and sampled OpenTelemetry spans expire after seven days. The admin **Service health & traces** panel reads the last hour or 24 hours and displays correlated request operations; approval is checked in MongoDB on every request.
+
+Objectives require at least 20 observations: 99% observed HTTP availability, 95% of HTTP/operation durations within two seconds (40 seconds for AI design), and 75% of sampled Web Vitals within LCP 2.5 seconds, INP 200 ms, and CLS 0.1. Percentiles are histogram upper bounds. Browser samples can include metric updates; they are observations rather than unique visitors. Observed HTTP availability includes recorded requests and cold starts, and does not replace external uptime measurement. Status changes appear in the admin panel; this does not send external alert notifications.
+
+Set `MONITORING_ENABLED=false` to opt out of persistent collection. For an additional collector, set `OTEL_ENABLED=true` and `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` to an OTLP/HTTP trace endpoint. Workers can use a distinct `OTEL_SERVICE_NAME`. Manual instrumentation stores route templates and fixed operation names, excluding raw URLs, payloads, emails, tokens, exception messages, and database query text. Request logs include sampled trace IDs, and `Server-Timing` exposes application response duration.
 
 ## Deployment
 

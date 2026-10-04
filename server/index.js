@@ -116,13 +116,14 @@ if (require.main === module) {
   mongoose
     .connect(process.env.MONGO_URI)
     .then(() => {
+      require("./services/monitoring").start();
       console.log("✅ MongoDB connected");
 
       const server = app.listen(PORT, () => {
         console.log(`✅ Server running on port ${PORT}`);
         console.log(`📚 Interactive API docs available at http://localhost:${PORT}/api/docs`);
       });
-      const shutdown = () => server.close(async () => { await closeRedis(); await mongoose.disconnect(); await telemetry.stopTelemetry(); });
+      const shutdown = () => server.close(async () => { await closeRedis(); await telemetry.stopTelemetry(); await mongoose.disconnect(); });
       process.once("SIGTERM", shutdown);
       process.once("SIGINT", shutdown);
     })

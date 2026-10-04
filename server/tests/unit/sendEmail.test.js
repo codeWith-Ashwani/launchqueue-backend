@@ -75,4 +75,16 @@ describe("Brevo HTTPS delivery", () => {
     await expect(require("../../utils/sendEmail")(message)).rejects.toThrow("Email delivery must be mocked");
     expect(global.fetch).not.toHaveBeenCalled();
   });
+  it("reuses the outbox UUID as the provider idempotency key", async () => {
+    const deliveryKey = "9313aba0-6d98-4a12-a082-5daeb595c250";
+    await require("../../utils/sendEmail")({ ...message, deliveryKey });
+    expect(JSON.parse(global.fetch.mock.calls[0][1].body).headers.idempotencyKey).toBe(deliveryKey);
+  });
+  it("acknowledges only an explicit duplicate idempotency receipt", async () => {
+    const deliveryKey = "9313aba0-6d98-4a12-a082-5daeb595c250";
+    global.fetch.mockResolvedValue({ ok: false, status: 400, json: async () => ({ code: "duplicate_parameter", message: "Email for this idempotency key has already been processed" }) });
+    await expect(require("../../utils/sendEmail")({ ...message, deliveryKey })).resolves.toBeUndefined();
+    global.fetch.mockResolvedValue({ ok: false, status: 400, json: async () => ({ code: "duplicate_parameter", message: "Other duplicate field" }) });
+    await expect(require("../../utils/sendEmail")({ ...message, deliveryKey })).rejects.toThrow("Brevo rejected email");
+  });
 });

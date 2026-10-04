@@ -24,6 +24,8 @@ export default function () {
     'HTTP 200': (r) => r.status === 200,
     '50 rows with the expected total': () => signups?.length === 50 && body?.pagination?.total === Number(__ENV.PERFORMANCE_RECORDS),
     'contiguous queue positions': () => signups?.every((row, i) => row?.currentPosition === i + 1),
+    'correct referrer ranks and credit counts': () => __ENV.PERFORMANCE_REFERRALS !== 'true' ||
+      (body?.topReferrers?.length === 10 && body.topReferrers.every((row, i) => row.refCode === `BENCH${i}` && row.currentPosition === i + 1 && row.referralCount === (Number(__ENV.PERFORMANCE_RECORDS) - 10) / 10)),
   });
   if (signups) rows.add(signups.length);
   bytes.add(response.body ? encodeURIComponent(response.body).replace(/%[a-f\d]{2}/gi, 'x').length : 0);

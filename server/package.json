@@ -4,6 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "contracts:generate": "node scripts/contracts.js",
+    "contracts:check": "node scripts/contracts.js --check",
     "dev": "node --watch index.js",
     "start": "node index.js",
     "worker": "node workers/emailWorker.js",
@@ -12,11 +14,13 @@
     "demo": "node scripts/localDemo.js",
     "benchmark": "node scripts/benchmark.js",
     "performance:smoke": "node scripts/performance/run.js --smoke",
+    "performance:stress": "node scripts/performance/run.js --stress",
+    "performance:referrals": "node scripts/performance/run.js --referrals",
     "performance:matrix": "node scripts/performance/run.js"
   },
   "type": "commonjs",
   "keywords": [],
-  "author": "",
+  "author": "codeWith-Ashwani",
   "license": "ISC",
   "dependencies": {
     "@opentelemetry/api": "^1.9.1",
@@ -43,7 +47,10 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@apidevtools/swagger-parser": "^13.1.0",
     "@eslint/js": "^10.0.1",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
     "eslint": "^10.9.1",
     "globals": "^17.11.0",
     "jest": "^30.4.2",

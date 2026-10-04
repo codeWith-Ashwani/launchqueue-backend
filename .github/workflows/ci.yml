@@ -41,6 +41,9 @@ jobs:
       - name: Run linter
         run: npm run lint
 
+      - name: Validate generated API contract
+        run: npm run contracts:check
+
       - name: Run tests
         run: npm test
 
@@ -56,7 +59,7 @@ jobs:
           echo "${GITHUB_WORKSPACE}/server/k6-v2.3.0-linux-amd64" >> "$GITHUB_PATH"
 
       - name: Gate concurrent analytics performance on isolated data
-        run: npm run performance:smoke
+        run: npm run performance:stress && npm run performance:referrals
         env:
           PERFORMANCE_P95_MS: 2000
 

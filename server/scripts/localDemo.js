@@ -1,10 +1,11 @@
 // Local-only fixture: owns an ephemeral database and captures email instead of using SMTP.
-async function startDemo({ port = 5051, clientUrl = "http://localhost:5173" } = {}) {
+async function startDemo({ port = 5051, clientUrl = "http://localhost:5173", monitoring = false } = {}) {
   process.env.NODE_ENV = "test";
   process.env.JWT_SECRET = "local-demo-signing-key-not-for-production";
   process.env.CLIENT_URL = clientUrl;
   process.env.EMAIL_DELIVERY_MODE = "inline";
   process.env.OTEL_ENABLED = "false";
+  process.env.MONITORING_ENABLED = String(monitoring);
   delete process.env.REDIS_URL;
   const { MongoMemoryReplSet } = require("mongodb-memory-server");
   const mongoose = require("mongoose");
@@ -15,6 +16,7 @@ async function startDemo({ port = 5051, clientUrl = "http://localhost:5173" } = 
   const inbox = [];
   require.cache[require.resolve("../utils/sendEmail")] = { exports: async (message) => { inbox.push(message); } };
   const app = require("../index");
+  require("../services/monitoring").start();
   const Founder = require("../models/Founder");
   const Waitlist = require("../models/Waitlist");
   const Signup = require("../models/Signup");
@@ -36,6 +38,7 @@ async function startDemo({ port = 5051, clientUrl = "http://localhost:5173" } = 
   const shutdown = async () => {
     if (stopping) return; stopping = true;
     server.closeAllConnections(); await new Promise((resolve) => server.close(resolve));
+    await require("../services/telemetry").stopTelemetry();
     await mongoose.disconnect(); await mongo.stop();
   };
   process.once("SIGTERM", shutdown); process.once("SIGINT", shutdown);

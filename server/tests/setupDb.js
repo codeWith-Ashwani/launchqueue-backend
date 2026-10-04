@@ -8,7 +8,9 @@ async function connectDb() {
   const uri = mongoServer.getUri();
   await mongoose.connect(uri);
   // Ensure unique indexes exist before exercising concurrent writes.
-  await Promise.all(Object.values(mongoose.models).map((model) => model.init()));
+  await Promise.all(
+    Object.values(mongoose.models).map((model) => model.init()),
+  );
 }
 
 async function closeDb() {
@@ -30,4 +32,8 @@ async function clearDb() {
   }
 }
 
-module.exports = { connectDb, closeDb, clearDb };
+function getDbUri() {
+  if (!mongoServer) throw new Error("Test database has not started");
+  return mongoServer.getUri();
+}
+module.exports = { connectDb, closeDb, clearDb, getDbUri };
