@@ -1,20 +1,28 @@
 function validateEnv() {
   require("../config/ai").aiConfig();
-  if (process.env.AI_DAILY_LIMIT && (!/^\d+$/.test(process.env.AI_DAILY_LIMIT) || Number(process.env.AI_DAILY_LIMIT) < 1 || Number(process.env.AI_DAILY_LIMIT) > 1000)) throw new Error("AI_DAILY_LIMIT must be an integer from 1 to 1000");
+  if (
+    process.env.AI_DAILY_LIMIT &&
+    (!/^\d+$/.test(process.env.AI_DAILY_LIMIT) ||
+      Number(process.env.AI_DAILY_LIMIT) < 1 ||
+      Number(process.env.AI_DAILY_LIMIT) > 1000)
+  )
+    throw new Error("AI_DAILY_LIMIT must be an integer from 1 to 1000");
   const { emailProvider, brevoConfig } = require("../config/email");
   if (emailProvider() === "brevo") brevoConfig();
   require("../config/redis").validateRedisUrl(process.env.REDIS_URL);
-  if (process.env.EMAIL_DELIVERY_MODE && !["inline", "queue"].includes(process.env.EMAIL_DELIVERY_MODE)) {
+  if (
+    process.env.EMAIL_DELIVERY_MODE &&
+    !["inline", "queue"].includes(process.env.EMAIL_DELIVERY_MODE)
+  ) {
     throw new Error("EMAIL_DELIVERY_MODE must be inline or queue");
   }
-  if (process.env.TRUST_PROXY_HOPS && !/^[0-5]$/.test(process.env.TRUST_PROXY_HOPS)) {
+  if (
+    process.env.TRUST_PROXY_HOPS &&
+    !/^[0-5]$/.test(process.env.TRUST_PROXY_HOPS)
+  ) {
     throw new Error("TRUST_PROXY_HOPS must be an integer from 0 to 5");
   }
-  const requiredVars = [
-    "MONGO_URI",
-    "JWT_SECRET",
-    "CLIENT_URL",
-  ];
+  const requiredVars = ["MONGO_URI", "JWT_SECRET", "CLIENT_URL"];
 
   const paymentVars = [
     "LEMONSQUEEZY_API_KEY",
@@ -27,8 +35,10 @@ function validateEnv() {
 
   // In test environment, set dummy fallbacks if not provided
   if (process.env.NODE_ENV === "test") {
-    if (!process.env.JWT_SECRET) process.env.JWT_SECRET = "test_jwt_secret_key_32_characters_minimum_len";
-    if (!process.env.CLIENT_URL) process.env.CLIENT_URL = "http://localhost:5173";
+    if (!process.env.JWT_SECRET)
+      process.env.JWT_SECRET = "test_jwt_secret_key_32_characters_minimum_len";
+    if (!process.env.CLIENT_URL)
+      process.env.CLIENT_URL = "http://localhost:5173";
     return;
   }
 
@@ -56,7 +66,7 @@ function validateEnv() {
 
   if (missingPayment.length > 0) {
     console.warn(
-      `⚠️ Payment features disabled: missing LEMONSQUEEZY_* env vars (${missingPayment.join(", ")}). Auth and waitlist features will still work.`
+      `⚠️ Payment features disabled: missing LEMONSQUEEZY_* env vars (${missingPayment.join(", ")}). Auth and waitlist features will still work.`,
     );
   }
 }

@@ -4,13 +4,17 @@
   const apiBase = new URL(scriptTag.src).origin;
 
   if (!slug) {
-    console.error("LaunchQueue widget: missing data-waitlist attribute on the script tag");
+    console.error(
+      "LaunchQueue widget: missing data-waitlist attribute on the script tag",
+    );
     return;
   }
 
   const container = document.getElementById("launchqueue-widget");
   if (!container) {
-    console.error("LaunchQueue widget: add <div id=\"launchqueue-widget\"></div> where you want it to render");
+    console.error(
+      'LaunchQueue widget: add <div id="launchqueue-widget"></div> where you want it to render',
+    );
     return;
   }
 
@@ -39,39 +43,42 @@
       <a class="lq-badge" href="${apiBase}" target="_blank" rel="noopener">Powered by LaunchQueue</a>
     `;
 
-    document.getElementById("lq-form").addEventListener("submit", async function (e) {
-      e.preventDefault();
-      const email = document.getElementById("lq-email").value;
-      const btn = document.getElementById("lq-submit");
-      const errorEl = document.getElementById("lq-error");
-      errorEl.style.display = "none";
-      btn.disabled = true;
-      btn.textContent = "Joining...";
+    document
+      .getElementById("lq-form")
+      .addEventListener("submit", async function (e) {
+        e.preventDefault();
+        const email = document.getElementById("lq-email").value;
+        const btn = document.getElementById("lq-submit");
+        const errorEl = document.getElementById("lq-error");
+        errorEl.style.display = "none";
+        btn.disabled = true;
+        btn.textContent = "Joining...";
 
-      const params = new URLSearchParams(window.location.search);
-      const ref = params.get("ref");
+        const params = new URLSearchParams(window.location.search);
+        const ref = params.get("ref");
 
-      try {
-        const res = await fetch(`${apiBase}/api/w/${slug}/signup`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, ref: ref || undefined }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Something went wrong");
-        renderSuccess(data);
-      } catch (err) {
-        errorEl.textContent = err.message;
-        errorEl.style.display = "block";
-        btn.disabled = false;
-        btn.textContent = "Join waitlist";
-      }
-    });
+        try {
+          const res = await fetch(`${apiBase}/api/w/${slug}/signup`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email, ref: ref || undefined }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || "Something went wrong");
+          renderSuccess(data);
+        } catch (err) {
+          errorEl.textContent = err.message;
+          errorEl.style.display = "block";
+          btn.disabled = false;
+          btn.textContent = "Join waitlist";
+        }
+      });
   }
 
   function renderSuccess(data) {
     container.innerHTML = '<div class="lq-success"><p role="status"></p></div>';
-    container.querySelector('[role="status"]').textContent = data.message || "Check your inbox to verify your email.";
+    container.querySelector('[role="status"]').textContent =
+      data.message || "Check your inbox to verify your email.";
   }
 
   renderForm();

@@ -30,12 +30,16 @@ async function register(req, res) {
       return res.status(400).json({ error: "Email and password are required" });
     }
     if (password.length < 6) {
-      return res.status(400).json({ error: "Password must be at least 6 characters" });
+      return res
+        .status(400)
+        .json({ error: "Password must be at least 6 characters" });
     }
 
     const existing = await Founder.findOne({ email: email.toLowerCase() });
     if (existing) {
-      return res.status(409).json({ error: "An account with this email already exists" });
+      return res
+        .status(409)
+        .json({ error: "An account with this email already exists" });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -54,9 +58,15 @@ async function register(req, res) {
       founder: founderProfile(founder),
     });
   } catch (err) {
-    console.error("Register error:", { requestId: req.requestId, code: err.code || "INTERNAL" });
+    console.error("Register error:", {
+      requestId: req.requestId,
+      code: err.code || "INTERNAL",
+    });
     res.status(500).json({
-      error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
+      error:
+        process.env.NODE_ENV === "production"
+          ? "Internal server error"
+          : err.message,
     });
   }
 }
@@ -73,7 +83,8 @@ async function login(req, res) {
 
     if (!founder.password) {
       return res.status(400).json({
-        error: "This account uses Google Sign-In. Please log in with Google instead.",
+        error:
+          "This account uses Google Sign-In. Please log in with Google instead.",
       });
     }
 
@@ -91,9 +102,15 @@ async function login(req, res) {
       founder: founderProfile(founder),
     });
   } catch (err) {
-    console.error("Login error:", { requestId: req.requestId, code: err.code || "INTERNAL" });
+    console.error("Login error:", {
+      requestId: req.requestId,
+      code: err.code || "INTERNAL",
+    });
     res.status(500).json({
-      error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
+      error:
+        process.env.NODE_ENV === "production"
+          ? "Internal server error"
+          : err.message,
     });
   }
 }
@@ -101,7 +118,13 @@ async function login(req, res) {
 // POST /api/auth/google  (public, rate-limited)
 async function googleLogin(req, res) {
   try {
-    if (!process.env.GOOGLE_CLIENT_ID?.trim()) return res.status(503).json({ error: "Google sign-in is temporarily unavailable. Please continue with email." });
+    if (!process.env.GOOGLE_CLIENT_ID?.trim())
+      return res
+        .status(503)
+        .json({
+          error:
+            "Google sign-in is temporarily unavailable. Please continue with email.",
+        });
     const { credential } = req.body;
 
     if (!credential || typeof credential !== "string") {
@@ -150,7 +173,10 @@ async function googleLogin(req, res) {
       founder: founderProfile(founder),
     });
   } catch (err) {
-    console.error("Google login error:", { requestId: req.requestId, code: err.code || "INTERNAL" });
+    console.error("Google login error:", {
+      requestId: req.requestId,
+      code: err.code || "INTERNAL",
+    });
     res.status(401).json({
       error: "Invalid or expired Google credential",
     });
@@ -159,16 +185,36 @@ async function googleLogin(req, res) {
 
 // POST /api/auth/logout
 async function logout(req, res) {
-  const token = req.cookies?.token || req.get("Authorization")?.replace(/^Bearer /, "");
+  const token =
+    req.cookies?.token || req.get("Authorization")?.replace(/^Bearer /, "");
   let identity;
-  try { if (token) identity = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ["HS256"] }); }
-  catch { /* An invalid session can still clear its cookie. */ }
+  try {
+    if (token)
+      identity = jwt.verify(token, process.env.JWT_SECRET, {
+        algorithms: ["HS256"],
+      });
+  } catch {
+    /* An invalid session can still clear its cookie. */
+  }
   if (identity) {
     try {
-      await Founder.updateOne({ _id: identity.id, $or: [
-        { sessionVersion: identity.sessionVersion || 0 }, ...(identity.sessionVersion ? [] : [{ sessionVersion: { $exists: false } }]),
-      ] }, { $inc: { sessionVersion: 1 } });
-    } catch { return res.status(503).json({ error: "Unable to revoke your session. Please try again." }); }
+      await Founder.updateOne(
+        {
+          _id: identity.id,
+          $or: [
+            { sessionVersion: identity.sessionVersion || 0 },
+            ...(identity.sessionVersion
+              ? []
+              : [{ sessionVersion: { $exists: false } }]),
+          ],
+        },
+        { $inc: { sessionVersion: 1 } },
+      );
+    } catch {
+      return res
+        .status(503)
+        .json({ error: "Unable to revoke your session. Please try again." });
+    }
   }
   const isProd = process.env.NODE_ENV === "production";
   res.clearCookie("token", {
@@ -195,7 +241,9 @@ async function updateProfile(req, res) {
     if (email && email.toLowerCase() !== req.founder.email.toLowerCase()) {
       const existing = await Founder.findOne({ email: email.toLowerCase() });
       if (existing && existing._id.toString() !== founderId.toString()) {
-        return res.status(409).json({ error: "An account with this email already exists" });
+        return res
+          .status(409)
+          .json({ error: "An account with this email already exists" });
       }
     }
 
@@ -206,16 +254,22 @@ async function updateProfile(req, res) {
     const updatedFounder = await Founder.findByIdAndUpdate(
       founderId,
       { $set: updates },
-      { new: true, runValidators: true }
+      { new: true, runValidators: true },
     ).select("-password");
 
     res.json({
       founder: founderProfile(updatedFounder),
     });
   } catch (err) {
-    console.error("Update profile error:", { requestId: req.requestId, code: err.code || "INTERNAL" });
+    console.error("Update profile error:", {
+      requestId: req.requestId,
+      code: err.code || "INTERNAL",
+    });
     res.status(500).json({
-      error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
+      error:
+        process.env.NODE_ENV === "production"
+          ? "Internal server error"
+          : err.message,
     });
   }
 }
@@ -233,7 +287,8 @@ async function changePassword(req, res) {
 
     if (!founder.password) {
       return res.status(400).json({
-        error: "This account was registered using Google Sign-In and does not have a local password set.",
+        error:
+          "This account was registered using Google Sign-In and does not have a local password set.",
       });
     }
 
@@ -243,17 +298,39 @@ async function changePassword(req, res) {
     }
 
     const password = await bcrypt.hash(newPassword, 10);
-    const updated = await Founder.findOneAndUpdate({ _id: founderId, password: founder.password }, {
-      $set: { password, resetPasswordTokenHash: null, resetPasswordExpires: null }, $inc: { sessionVersion: 1 },
-    }, { returnDocument: "after" });
-    if (!updated) return res.status(409).json({ error: "Account changed. Please sign in again." });
-    res.cookie("token", generateToken(updated._id, updated.sessionVersion), getCookieOptions());
+    const updated = await Founder.findOneAndUpdate(
+      { _id: founderId, password: founder.password },
+      {
+        $set: {
+          password,
+          resetPasswordTokenHash: null,
+          resetPasswordExpires: null,
+        },
+        $inc: { sessionVersion: 1 },
+      },
+      { returnDocument: "after" },
+    );
+    if (!updated)
+      return res
+        .status(409)
+        .json({ error: "Account changed. Please sign in again." });
+    res.cookie(
+      "token",
+      generateToken(updated._id, updated.sessionVersion),
+      getCookieOptions(),
+    );
 
     res.json({ message: "Password updated successfully" });
   } catch (err) {
-    console.error("Change password error:", { requestId: req.requestId, code: err.code || "INTERNAL" });
+    console.error("Change password error:", {
+      requestId: req.requestId,
+      code: err.code || "INTERNAL",
+    });
     res.status(500).json({
-      error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
+      error:
+        process.env.NODE_ENV === "production"
+          ? "Internal server error"
+          : err.message,
     });
   }
 }
@@ -263,7 +340,8 @@ async function requestPasswordReset(req, res) {
   try {
     const { email } = req.body;
     const genericResponse = {
-      message: "If an account exists for this email, a reset link has been sent.",
+      message:
+        "If an account exists for this email, a reset link has been sent.",
     };
 
     if (!email) {
@@ -276,24 +354,49 @@ async function requestPasswordReset(req, res) {
     }
 
     const rawToken = crypto.randomBytes(32).toString("hex");
-    const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
+    const tokenHash = crypto
+      .createHash("sha256")
+      .update(rawToken)
+      .digest("hex");
 
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
     const resetUrl = `${process.env.CLIENT_URL}/reset-password?token=${rawToken}`;
     const emailJob = await mongoose.connection.transaction(async (session) => {
-      await Founder.updateOne({ _id: founder._id }, { $set: {
-        resetPasswordTokenHash: tokenHash, resetPasswordExpires: expiresAt,
-      } }, { session });
-      return recordEmail({ dedupeKey: `reset-${founder._id}-${tokenHash}`, kind: "password-reset", expiresAt,
-        to: founder.email, subject: "Reset your LaunchQueue password", html: passwordResetEmail({ resetUrl }) }, session);
+      await Founder.updateOne(
+        { _id: founder._id },
+        {
+          $set: {
+            resetPasswordTokenHash: tokenHash,
+            resetPasswordExpires: expiresAt,
+          },
+        },
+        { session },
+      );
+      return recordEmail(
+        {
+          dedupeKey: `reset-${founder._id}-${tokenHash}`,
+          kind: "password-reset",
+          expiresAt,
+          to: founder.email,
+          subject: "Reset your LaunchQueue password",
+          html: passwordResetEmail({ resetUrl }),
+        },
+        session,
+      );
     });
     await dispatchInline([emailJob]);
 
     res.status(200).json(genericResponse);
   } catch (err) {
-    console.error("RequestPasswordReset error:", { requestId: req.requestId, code: err.code || "INTERNAL" });
+    console.error("RequestPasswordReset error:", {
+      requestId: req.requestId,
+      code: err.code || "INTERNAL",
+    });
     res.status(500).json({
-      error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
+      error:
+        process.env.NODE_ENV === "production"
+          ? "Internal server error"
+          : err.message,
     });
   }
 }
@@ -304,25 +407,45 @@ async function resetPassword(req, res) {
     const { token, newPassword } = req.body;
 
     if (!token || !newPassword) {
-      return res.status(400).json({ error: "Token and new password are required." });
+      return res
+        .status(400)
+        .json({ error: "Token and new password are required." });
     }
 
     const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);
-    const founder = await Founder.findOneAndUpdate({
-      resetPasswordTokenHash: tokenHash, resetPasswordExpires: { $gt: new Date() },
-    }, { $set: { password: hashedPassword, resetPasswordTokenHash: null, resetPasswordExpires: null },
-      $inc: { sessionVersion: 1 } }, { returnDocument: "after" });
-    if (!founder) return res.status(400).json({ error: "Invalid or expired reset link." });
+    const founder = await Founder.findOneAndUpdate(
+      {
+        resetPasswordTokenHash: tokenHash,
+        resetPasswordExpires: { $gt: new Date() },
+      },
+      {
+        $set: {
+          password: hashedPassword,
+          resetPasswordTokenHash: null,
+          resetPasswordExpires: null,
+        },
+        $inc: { sessionVersion: 1 },
+      },
+      { returnDocument: "after" },
+    );
+    if (!founder)
+      return res.status(400).json({ error: "Invalid or expired reset link." });
 
     res.status(200).json({
       message: "Password has been successfully reset. You can now log in.",
     });
   } catch (err) {
-    console.error("ResetPassword error:", { requestId: req.requestId, code: err.code || "INTERNAL" });
+    console.error("ResetPassword error:", {
+      requestId: req.requestId,
+      code: err.code || "INTERNAL",
+    });
     res.status(500).json({
-      error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
+      error:
+        process.env.NODE_ENV === "production"
+          ? "Internal server error"
+          : err.message,
     });
   }
 }

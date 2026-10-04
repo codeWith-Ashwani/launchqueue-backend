@@ -3,7 +3,8 @@ function validate(schema) {
     const result = schema.safeParse(req.body);
     if (!result.success) {
       const fieldErrors = {};
-      const firstErrorMessage = result.error.issues[0]?.message || "Validation failed";
+      const firstErrorMessage =
+        result.error.issues[0]?.message || "Validation failed";
 
       for (const issue of result.error.issues) {
         const field = issue.path.join(".") || "body";

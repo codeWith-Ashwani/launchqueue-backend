@@ -1,10 +1,20 @@
 const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
 const RedisRateStore = require("../services/redisRateStore");
-function createLimiter(prefix, windowMs, limit, { client, skipTests = true } = {}) {
+function createLimiter(
+  prefix,
+  windowMs,
+  limit,
+  { client, skipTests = true } = {},
+) {
   return rateLimit({
-    windowMs, limit, standardHeaders: "draft-8", legacyHeaders: false,
+    windowMs,
+    limit,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
     keyGenerator: (req) => ipKeyGenerator(req.ip),
-    ...(client || process.env.REDIS_URL ? { store: new RedisRateStore(prefix, client) } : {}),
+    ...(client || process.env.REDIS_URL
+      ? { store: new RedisRateStore(prefix, client) }
+      : {}),
     passOnStoreError: false,
     message: { error: "Too many requests. Please try again later." },
     skip: () => skipTests && process.env.NODE_ENV === "test",

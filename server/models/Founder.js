@@ -58,7 +58,7 @@ const founderSchema = new mongoose.Schema(
     subscriptionEndsAt: Date,
     billingUpdatedAt: Date,
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 module.exports = mongoose.model("Founder", founderSchema);

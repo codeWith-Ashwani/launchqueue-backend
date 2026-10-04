@@ -35,9 +35,17 @@ const signupSchema = new mongoose.Schema(
       type: Number,
       required: true,
     },
-    invitationState: { type: String, enum: ["none", "queued", "sent", "failed"], default: "none" },
+    invitationState: {
+      type: String,
+      enum: ["none", "queued", "sent", "failed"],
+      default: "none",
+    },
     // Existing subscribers retain their queue access; new public joins explicitly start pending.
-    verificationState: { type: String, enum: ["legacy", "pending", "verified"], default: "legacy" },
+    verificationState: {
+      type: String,
+      enum: ["legacy", "pending", "verified"],
+      default: "legacy",
+    },
     verifiedAt: Date,
     initialPosition: Number,
     status: {
@@ -46,7 +54,7 @@ const signupSchema = new mongoose.Schema(
       default: "waiting",
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 // One email can only join a given waitlist once

@@ -87,7 +87,9 @@ describe("Admin Controls (Position Override & Batch Invite) Integration Tests", 
   describe("PATCH /api/waitlists/:id/signups/:signupId/position", () => {
     it("successfully updates a signup's position", async () => {
       const res = await request(app)
-        .patch(`/api/waitlists/${waitlist1._id}/signups/${signup1._id}/position`)
+        .patch(
+          `/api/waitlists/${waitlist1._id}/signups/${signup1._id}/position`,
+        )
         .set("Authorization", `Bearer ${token1}`)
         .send({ currentPosition: 1 });
 
@@ -100,7 +102,9 @@ describe("Admin Controls (Position Override & Batch Invite) Integration Tests", 
 
     it("returns 404 when updating a signup that belongs to a different waitlist", async () => {
       const res = await request(app)
-        .patch(`/api/waitlists/${waitlist1._id}/signups/${otherSignup._id}/position`)
+        .patch(
+          `/api/waitlists/${waitlist1._id}/signups/${otherSignup._id}/position`,
+        )
         .set("Authorization", `Bearer ${token1}`)
         .send({ currentPosition: 1 });
 
@@ -110,7 +114,9 @@ describe("Admin Controls (Position Override & Batch Invite) Integration Tests", 
 
     it("returns 404 when waitlist is not owned by the authenticated founder", async () => {
       const res = await request(app)
-        .patch(`/api/waitlists/${waitlist1._id}/signups/${signup1._id}/position`)
+        .patch(
+          `/api/waitlists/${waitlist1._id}/signups/${signup1._id}/position`,
+        )
         .set("Authorization", `Bearer ${token2}`)
         .send({ currentPosition: 1 });
 
@@ -119,14 +125,18 @@ describe("Admin Controls (Position Override & Batch Invite) Integration Tests", 
 
     it("returns 400 when currentPosition is zero or negative", async () => {
       const resZero = await request(app)
-        .patch(`/api/waitlists/${waitlist1._id}/signups/${signup1._id}/position`)
+        .patch(
+          `/api/waitlists/${waitlist1._id}/signups/${signup1._id}/position`,
+        )
         .set("Authorization", `Bearer ${token1}`)
         .send({ currentPosition: 0 });
 
       expect(resZero.status).toBe(400);
 
       const resNeg = await request(app)
-        .patch(`/api/waitlists/${waitlist1._id}/signups/${signup1._id}/position`)
+        .patch(
+          `/api/waitlists/${waitlist1._id}/signups/${signup1._id}/position`,
+        )
         .set("Authorization", `Bearer ${token1}`)
         .send({ currentPosition: -5 });
 

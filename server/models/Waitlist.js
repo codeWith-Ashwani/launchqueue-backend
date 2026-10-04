@@ -43,7 +43,14 @@ const waitlistSchema = new mongoose.Schema(
     pageDesign: {
       type: mongoose.Schema.Types.Mixed,
       default: undefined,
-      validate: { validator: (value) => value === undefined || require("../validators/campaignDesign").pageDesignSchema.safeParse(value).success, message: "Invalid campaign page design" },
+      validate: {
+        validator: (value) =>
+          value === undefined ||
+          require("../validators/campaignDesign").pageDesignSchema.safeParse(
+            value,
+          ).success,
+        message: "Invalid campaign page design",
+      },
     },
     features: [
       {
