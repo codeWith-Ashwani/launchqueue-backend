@@ -321,7 +321,7 @@ paths:
       summary: 'Generate an editable branded campaign page draft'
       tags:
         - Waitlists
-      description: 'Requires a configured Groq or Gemini API key for the selected AI_PROVIDER. Does not create or update a campaign. Five attempts per founder per UTC day, plus the shared AI_DAILY_LIMIT allowance. Publish explicitly through the create/update endpoints.'
+      description: 'Requires a configured Groq API key. Does not create or update a campaign. Five attempts per founder per UTC day, plus the shared AI_DAILY_LIMIT allowance. Publish explicitly through the create/update endpoints.'
       security:
         -
           bearerAuth: []
@@ -1106,10 +1106,6 @@ components:
         providerStatus:
           type: integer
           description: 'Optional HTTP status returned by the AI provider.'
-        providerReason:
-          type: string
-          description: 'Optional allowlisted provider reason; raw provider messages are never returned.'
-          enum: [API_KEY_INVALID, API_KEY_SERVICE_BLOCKED, API_KEY_IP_ADDRESS_BLOCKED, API_KEY_HTTP_REFERRER_BLOCKED, SERVICE_DISABLED, CONSUMER_INVALID, BILLING_DISABLED, ACCESS_TOKEN_SCOPE_INSUFFICIENT, IAM_PERMISSION_DENIED, PROJECT_ACCESS_DENIED, KEY_BLOCKED, API_METHOD_BLOCKED, LOCATION_UNSUPPORTED]
 
     PageDesign:
       type: object

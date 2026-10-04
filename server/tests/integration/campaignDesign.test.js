@@ -13,7 +13,7 @@ describe("Founder campaign design and publishing", () => {
   let token, otherToken, original;
   beforeAll(connectDb); afterAll(closeDb);
   beforeEach(async () => {
-    await clearDb(); original = { ...process.env }; process.env.AI_PROVIDER = "gemini"; process.env.GEMINI_API_KEY = "synthetic-key"; process.env.AI_DAILY_LIMIT = "20";
+    await clearDb(); original = { ...process.env }; process.env.GROQ_API_KEY = "synthetic-key"; process.env.AI_DAILY_LIMIT = "20";
     generateDesign.mockReset().mockResolvedValue(draft);
     const founder = await Founder.create({ email: "designer@example.com", plan: "pro" });
     const other = await Founder.create({ email: "other@example.com", plan: "pro" });
@@ -29,13 +29,8 @@ describe("Founder campaign design and publishing", () => {
     const res = await generate(); expect(res.status).toBe(200); expect(res.body.design).toEqual(draft);
     expect(await Waitlist.countDocuments()).toBe(0);
   });
-  it("uses a selected Groq key without requiring Gemini credentials", async () => {
-    process.env.AI_PROVIDER = "groq"; process.env.GROQ_API_KEY = "synthetic-groq-key"; delete process.env.GEMINI_API_KEY;
-    const res = await generate(); expect(res.status).toBe(200); expect(res.body.design).toEqual(draft);
-    expect(await Waitlist.countDocuments()).toBe(0); expect(generateDesign).toHaveBeenCalledTimes(1);
-  });
-  it("does not consume an allowance when the selected provider has no key", async () => {
-    process.env.AI_PROVIDER = "groq"; delete process.env.GROQ_API_KEY;
+  it("does not consume an allowance when the Groq key is missing", async () => {
+    delete process.env.GROQ_API_KEY;
     expect((await generate()).status).toBe(503);
     expect(await Usage.countDocuments()).toBe(0); expect(generateDesign).not.toHaveBeenCalled();
   });
@@ -44,7 +39,7 @@ describe("Founder campaign design and publishing", () => {
     expect(created.status).toBe(201);
     const page = await request(app).get(`/api/w/${created.body.waitlist.slug}`);
     expect(page.body.pageDesign).toEqual(draft.pageDesign); expect(page.body.accentColor).toBe(draft.accentColor);
-    expect(page.body).not.toHaveProperty("founderId"); expect(page.body).not.toHaveProperty("GEMINI_API_KEY");
+    expect(page.body).not.toHaveProperty("founderId"); expect(page.body).not.toHaveProperty("GROQ_API_KEY");
     const denied = await request(app).patch(`/api/waitlists/${created.body.waitlist._id}`).set("Authorization", `Bearer ${otherToken}`).send({ pageDesign: { ...draft.pageDesign, layout: "split" } });
     expect(denied.status).toBe(404);
     const updated = await request(app).patch(`/api/waitlists/${created.body.waitlist._id}`).set("Authorization", `Bearer ${token}`).send({ pageDesign: { ...draft.pageDesign, layout: "split" } });
@@ -61,7 +56,7 @@ describe("Founder campaign design and publishing", () => {
     expect(await Usage.countDocuments()).toBe(0);
   });
   it("keeps manual publishing available when AI is unconfigured", async () => {
-    delete process.env.GEMINI_API_KEY;
+    delete process.env.GROQ_API_KEY;
     expect((await generate()).status).toBe(503); expect(generateDesign).not.toHaveBeenCalled();
     expect((await request(app).post("/api/waitlists").set("Authorization", `Bearer ${token}`).send({ name: "Manual", ...draft })).status).toBe(201);
   });

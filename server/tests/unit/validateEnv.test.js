@@ -5,7 +5,7 @@ describe("Environment Validation Unit Tests", () => {
 
   beforeEach(() => {
     process.env = { ...originalEnv };
-    delete process.env.AI_PROVIDER; delete process.env.GROQ_MODEL; delete process.env.GEMINI_MODEL;
+    delete process.env.GROQ_MODEL;
     process.env.EMAIL_PROVIDER = "smtp";
   });
 
@@ -39,12 +39,8 @@ describe("Environment Validation Unit Tests", () => {
     process.env.EMAIL_PROVIDER = "unknown";
     expect(() => validateEnv()).toThrow("EMAIL_PROVIDER must be smtp or brevo");
   });
-  it("fails fast for an unsupported AI provider", () => {
-    process.env.AI_PROVIDER = "unknown";
-    expect(() => validateEnv()).toThrow("AI_PROVIDER must be groq or gemini");
-  });
-  it("accepts a namespaced Groq model in the configured provider", () => {
-    process.env.NODE_ENV = "test"; process.env.AI_PROVIDER = "groq"; process.env.GROQ_MODEL = "openai/gpt-oss-20b";
+  it("accepts a namespaced Groq model", () => {
+    process.env.NODE_ENV = "test"; process.env.GROQ_MODEL = "openai/gpt-oss-20b";
     expect(() => validateEnv()).not.toThrow();
   });
 
