@@ -13,7 +13,7 @@ describe("Founder campaign design and publishing", () => {
   let token, otherToken, original;
   beforeAll(connectDb); afterAll(closeDb);
   beforeEach(async () => {
-    await clearDb(); original = { ...process.env }; process.env.GEMINI_API_KEY = "synthetic-key"; process.env.AI_DAILY_LIMIT = "20";
+    await clearDb(); original = { ...process.env }; process.env.AI_PROVIDER = "gemini"; process.env.GEMINI_API_KEY = "synthetic-key"; process.env.AI_DAILY_LIMIT = "20";
     generateDesign.mockReset().mockResolvedValue(draft);
     const founder = await Founder.create({ email: "designer@example.com", plan: "pro" });
     const other = await Founder.create({ email: "other@example.com", plan: "pro" });
@@ -28,6 +28,16 @@ describe("Founder campaign design and publishing", () => {
   it("generates a draft without creating or modifying a public campaign", async () => {
     const res = await generate(); expect(res.status).toBe(200); expect(res.body.design).toEqual(draft);
     expect(await Waitlist.countDocuments()).toBe(0);
+  });
+  it("uses a selected Groq key without requiring Gemini credentials", async () => {
+    process.env.AI_PROVIDER = "groq"; process.env.GROQ_API_KEY = "synthetic-groq-key"; delete process.env.GEMINI_API_KEY;
+    const res = await generate(); expect(res.status).toBe(200); expect(res.body.design).toEqual(draft);
+    expect(await Waitlist.countDocuments()).toBe(0); expect(generateDesign).toHaveBeenCalledTimes(1);
+  });
+  it("does not consume an allowance when the selected provider has no key", async () => {
+    process.env.AI_PROVIDER = "groq"; delete process.env.GROQ_API_KEY;
+    expect((await generate()).status).toBe(503);
+    expect(await Usage.countDocuments()).toBe(0); expect(generateDesign).not.toHaveBeenCalled();
   });
   it("publishes a design on creation and exposes only public fields", async () => {
     const created = await request(app).post("/api/waitlists").set("Authorization", `Bearer ${token}`).send({ name: "Maker Studio", ...draft });

@@ -1,7 +1,8 @@
 const { generateDesign, reserveGeneration } = require("../services/campaignDesign");
+const { aiConfig } = require("../config/ai");
 async function generate(req, res) {
   try {
-    if (!process.env.GEMINI_API_KEY) return res.status(503).json({ error: "AI design is not configured yet. You can still customize the page manually." });
+    if (!aiConfig().apiKey) return res.status(503).json({ error: "AI design is not configured yet. You can still customize the page manually." });
     await reserveGeneration(req.founder._id);
     const design = await generateDesign(req.body);
     res.json({ design });
