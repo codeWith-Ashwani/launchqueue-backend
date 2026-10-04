@@ -6,8 +6,10 @@ async function generate(req, res) {
     const design = await generateDesign(req.body);
     res.json({ design });
   } catch (err) {
-    console.error("Campaign design failed", { requestId: req.requestId, status: err.status || 500 });
-    res.status(err.status || 500).json({ error: err.status ? err.message : "Could not generate a design. Your draft is unchanged." });
+    console.error("Campaign design failed", { requestId: req.requestId, status: err.status || 500, code: err.code, providerStatus: err.providerStatus });
+    res.status(err.status || 500).json({ error: err.status ? err.message : "Could not generate a design. Your draft is unchanged.",
+      ...(err.providerStatus ? { code: err.code, providerStatus: err.providerStatus } : {}),
+    });
   }
 }
 module.exports = { generate };

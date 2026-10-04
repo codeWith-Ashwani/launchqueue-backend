@@ -4,6 +4,29 @@ const Usage = require("../models/AIGenerationUsage");
 const { designDraftSchema } = require("../validators/campaignDesign");
 const failure = (message, status) => Object.assign(new Error(message), { status });
 
+async function providerFailure(response) {
+  let code = response.status === 429 ? "AI_PROVIDER_QUOTA" : "AI_PROVIDER_UNAVAILABLE";
+  let message = response.status === 429 ? "Gemini's free-tier limit was reached. Try later or continue editing manually." : "AI design is temporarily unavailable. Your current draft is unchanged.";
+  if ([400, 401, 403, 404].includes(response.status)) {
+    code = response.status === 404 ? "AI_MODEL_UNAVAILABLE" : "AI_PROVIDER_REQUEST_REJECTED";
+    try {
+      const payload = await response.json();
+      const reasons = payload.error?.details?.map((detail) => detail.reason) || [];
+      if (reasons.includes("API_KEY_INVALID") || response.status === 401) {
+        code = "AI_API_KEY_INVALID";
+        message = "The AI provider rejected the server API key. Update GEMINI_API_KEY on the backend; manual editing is still available.";
+      } else if (reasons.some((reason) => ["API_KEY_SERVICE_BLOCKED", "API_KEY_IP_ADDRESS_BLOCKED", "API_KEY_HTTP_REFERRER_BLOCKED", "SERVICE_DISABLED", "CONSUMER_INVALID"].includes(reason)) || response.status === 403) {
+        code = "AI_API_ACCESS_DENIED";
+        message = "The AI provider denied access for this server key or project. Check the backend key's API restrictions and project access.";
+      } else if (response.status === 404) {
+        message = "The configured AI model is unavailable to this project. Update GEMINI_MODEL on the backend; manual editing is still available.";
+      }
+    } catch { /* Return only our fixed diagnostics when the provider body cannot be read. */ }
+  }
+  await response.body?.cancel().catch(() => {});
+  return Object.assign(failure(message, response.status === 429 ? 429 : 502), { code, providerStatus: response.status });
+}
+
 async function reserveGeneration(founderId) {
   const day = new Date().toISOString().slice(0, 10);
   const expiresAt = new Date(Date.now() + 3 * 86400000);
@@ -42,8 +65,7 @@ async function generateDesign(input, { fetchImpl } = {}) {
     throw failure("AI design took too long or could not connect. Your current draft is unchanged.", 503);
   }
   if (!response.ok) {
-    await response.body?.cancel();
-    throw failure(response.status === 429 ? "Gemini's free-tier limit was reached. Try later or continue editing manually." : "AI design is temporarily unavailable. Your current draft is unchanged.", response.status === 429 ? 429 : 502);
+    throw await providerFailure(response);
   }
   let generated;
   try {

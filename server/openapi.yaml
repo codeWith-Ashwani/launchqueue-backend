@@ -1099,6 +1099,13 @@ components:
         error:
           type: string
           example: Something went wrong
+        code:
+          type: string
+          description: 'Optional fixed AI provider diagnostic code; never contains provider response text or credentials.'
+          enum: [AI_PROVIDER_QUOTA, AI_PROVIDER_UNAVAILABLE, AI_PROVIDER_REQUEST_REJECTED, AI_API_KEY_INVALID, AI_API_ACCESS_DENIED, AI_MODEL_UNAVAILABLE]
+        providerStatus:
+          type: integer
+          description: 'Optional HTTP status returned by the AI provider.'
 
     PageDesign:
       type: object

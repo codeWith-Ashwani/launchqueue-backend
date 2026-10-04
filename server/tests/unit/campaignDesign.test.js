@@ -44,4 +44,17 @@ describe("Gemini design transport", () => {
     await expect(generateDesign(input, { fetchImpl: jest.fn().mockRejectedValue(new Error("private data")) })).rejects.toMatchObject({ status: 503 });
     await expect(generateDesign(input)).rejects.toThrow("AI requests must be mocked");
   });
+  it.each([
+    [400, "API_KEY_INVALID", "AI_API_KEY_INVALID"],
+    [403, "API_KEY_SERVICE_BLOCKED", "AI_API_ACCESS_DENIED"],
+    [404, undefined, "AI_MODEL_UNAVAILABLE"],
+    [400, "PRIVATE_UNKNOWN_REASON", "AI_PROVIDER_REQUEST_REJECTED"],
+  ])("returns safe diagnostics for provider HTTP %s", async (status, reason, code) => {
+    const json = jest.fn().mockResolvedValue({ error: { message: "private prompt and synthetic-gemini-key", details: [{ reason }] } });
+    let error;
+    try { await generateDesign(input, { fetchImpl: jest.fn().mockResolvedValue({ ok: false, status, json }) }); }
+    catch (caught) { error = caught; }
+    expect(error).toMatchObject({ status: 502, providerStatus: status, code });
+    expect(error.message).not.toMatch(/private prompt|synthetic-gemini-key|PRIVATE_UNKNOWN_REASON/);
+  });
 });
