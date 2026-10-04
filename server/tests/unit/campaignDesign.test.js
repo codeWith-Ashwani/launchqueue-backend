@@ -7,10 +7,12 @@ describe("Gemini design transport", () => {
   afterEach(() => { process.env = original; });
   const response = (value, finishReason = "STOP") => ({ ok: true, json: async () => ({ candidates: [{ finishReason, content: { parts: [{ text: JSON.stringify(value) }] } }] }) });
   it("uses a server-only key and validates structured page output", async () => {
+    delete process.env.GEMINI_MODEL;
     const fetchImpl = jest.fn().mockResolvedValue(response(draft));
     expect(await generateDesign(input, { fetchImpl })).toEqual(draft);
     const [url, options] = fetchImpl.mock.calls[0];
     expect(url).not.toContain("synthetic-gemini-key");
+    expect(url).toContain("/models/gemini-3.5-flash-lite:generateContent");
     expect(options.headers["x-goog-api-key"]).toBe("synthetic-gemini-key");
     const body = JSON.parse(options.body);
     expect(JSON.parse(body.contents[0].parts[0].text)).toEqual(input);

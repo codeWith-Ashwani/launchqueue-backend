@@ -46,7 +46,7 @@ async function reserveGeneration(founderId) {
 async function generateDesign(input, { fetchImpl } = {}) {
   if (!process.env.GEMINI_API_KEY) throw failure("AI design is not configured yet. You can still customize the page manually.", 503);
   if (process.env.NODE_ENV === "test" && !fetchImpl) throw failure("AI requests must be mocked in tests", 503);
-  const model = process.env.GEMINI_MODEL || "gemini-2.5-flash-lite";
+  const model = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
   if (!/^[a-zA-Z0-9._-]+$/.test(model)) throw failure("Invalid AI model configuration", 503);
   const schema = z.toJSONSchema(designDraftSchema, { target: "draft-7" });
   delete schema.$schema;
