@@ -12,6 +12,35 @@ servers:
     description: Production API server
 
 paths:
+  /api/admin/diagnostics:
+    get:
+      summary: Process latency, memory, Web Vitals and aggregate email backlog
+      description: Database-approved administrators only. Request and operation percentiles use the most recent 128 samples per label in this process. Includes no subscriber identities, payloads, raw paths or errors. No-store response.
+      tags: [Administration]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        '200': { description: Process diagnostics and email outbox state counts with oldest unsent age }
+        '401': { description: Authentication required }
+        '403': { description: Administrator approval required }
+        '503': { description: Diagnostics temporarily unavailable }
+  /api/telemetry/vitals:
+    post:
+      summary: Record a bounded anonymous Web Vitals batch
+      description: Requires the configured frontend Origin. Maximum three measurements and a 2 KB text/plain beacon; fixed route templates only. No authentication or identity fields. Rate limited to 30 requests per minute per IP.
+      tags: [Telemetry]
+      requestBody:
+        required: true
+        content:
+          text/plain:
+            schema:
+              type: string
+              example: '{"metrics":[{"name":"LCP","route":"/","value":1200}]}'
+      responses:
+        '204': { description: Accepted }
+        '400': { description: Invalid measurements }
+        '403': { description: Untrusted origin }
+        '413': { description: Payload too large }
+        '429': { description: Rate limit exceeded }
   /api/auth/config:
     get:
       summary: Public Google OAuth web client configuration

@@ -16,4 +16,5 @@ const schema = new mongoose.Schema({
   sentAt: Date,
 }, { timestamps: true });
 schema.index({ state: 1, nextDispatchAt: 1 });
+schema.index({ state: 1, createdAt: 1 });
 module.exports = mongoose.model("EmailOutbox", schema);

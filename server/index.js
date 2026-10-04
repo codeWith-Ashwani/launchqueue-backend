@@ -7,6 +7,8 @@ const cookieParser = require("cookie-parser");
 const swaggerUi = require("swagger-ui-express");
 const YAML = require("yamljs");
 if (process.env.NODE_ENV !== "test") require("dotenv").config();
+const telemetry = require("./services/telemetry");
+telemetry.startTelemetry();
 
 const validateEnv = require("./utils/validateEnv");
 
@@ -72,13 +74,24 @@ const strictCors = cors({
   },
   credentials: true,
   maxAge: 600,
+  exposedHeaders: ["X-Request-Id", "Server-Timing"],
 });
 
 const openCors = cors({
   origin: true,
   credentials: true,
   maxAge: 600,
+  exposedHeaders: ["X-Request-Id", "Server-Timing"],
 });
+
+// Static mount names keep telemetry labels independent of user-supplied paths.
+for (const mount of ["auth", "admin", "discover", "waitlists", "payments", "w", "telemetry"]) {
+  app.use(`/api/${mount}`, (req, _res, next) => { req.telemetryMount = `/api/${mount}`; next(); });
+}
+app.use("/api/telemetry", (req, res, next) => {
+  if (!req.headers.origin || !allowedOrigins.includes(req.headers.origin)) return res.sendStatus(403);
+  next();
+}, strictCors, require("./routes/telemetry"));
 
 app.use("/api/auth", browserRequest, strictCors, require("./routes/auth"));
 app.use("/api/admin", browserRequest, strictCors, require("./routes/admin"));
@@ -109,7 +122,7 @@ if (require.main === module) {
         console.log(`✅ Server running on port ${PORT}`);
         console.log(`📚 Interactive API docs available at http://localhost:${PORT}/api/docs`);
       });
-      const shutdown = () => server.close(async () => { await closeRedis(); await mongoose.disconnect(); });
+      const shutdown = () => server.close(async () => { await closeRedis(); await mongoose.disconnect(); await telemetry.stopTelemetry(); });
       process.once("SIGTERM", shutdown);
       process.once("SIGINT", shutdown);
     })

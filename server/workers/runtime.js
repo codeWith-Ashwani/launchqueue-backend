@@ -4,6 +4,8 @@ const { createRedis } = require("../config/redis");
 async function startWorker(start) {
   require("dotenv").config();
   require("../utils/validateEnv")();
+  const telemetry = require("../services/telemetry");
+  telemetry.startTelemetry();
   if (!process.env.REDIS_URL) throw new Error("Worker requires REDIS_URL");
   const connection = createRedis("worker");
   try {
@@ -19,6 +21,7 @@ async function startWorker(start) {
       await close();
       connection.disconnect();
       await mongoose.disconnect();
+      await telemetry.stopTelemetry();
     };
     process.once("SIGTERM", shutdown);
     process.once("SIGINT", shutdown);
@@ -26,6 +29,7 @@ async function startWorker(start) {
   } catch (err) {
     connection.disconnect();
     await mongoose.disconnect();
+    await telemetry.stopTelemetry();
     throw err;
   }
 }

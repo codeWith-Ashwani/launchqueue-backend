@@ -5,6 +5,7 @@ const { listQuery, moderationSchema } = require("../validators/platform");
 const controller = require("../controllers/adminController");
 router.use(require("../middleware/authMiddleware"), require("../middleware/adminMiddleware"));
 router.use(require("../middleware/rateLimiter").createLimiter("admin-console", 60000, 90));
+router.get("/diagnostics", require("../controllers/diagnosticsController").diagnostics);
 router.get("/overview", controller.overview);
 router.get("/founders", validateQuery(listQuery), controller.founders);
 router.get("/campaigns", validateQuery(listQuery), controller.campaigns);

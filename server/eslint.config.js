@@ -26,7 +26,10 @@ module.exports = [
     },
   },
   {
+    files: ["scripts/performance/*.mjs"],
+    languageOptions: { sourceType: "module", globals: { __ENV: "readonly" } },
+  },
+  {
     ignores: ["node_modules/", "coverage/", "dist/"],
   },
 ];
-

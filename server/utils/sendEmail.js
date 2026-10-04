@@ -59,4 +59,4 @@ async function sendEmail({ to, subject, html, messageId }) {
     });
 }
 
-module.exports = sendEmail;
+module.exports = (message) => require("../services/telemetry").observe("email.deliver", () => sendEmail(message));

@@ -104,4 +104,4 @@ async function generateDesign(input, { fetchImpl } = {}) {
   generated.pageDesign.logoUrl = "";
   return generated;
 }
-module.exports = { generateDesign, reserveGeneration };
+module.exports = { generateDesign: (...args) => require("./telemetry").observe("ai.design", () => generateDesign(...args)), reserveGeneration };

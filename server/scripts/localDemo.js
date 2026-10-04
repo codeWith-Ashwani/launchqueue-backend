@@ -4,6 +4,7 @@ async function startDemo({ port = 5051, clientUrl = "http://localhost:5173" } = 
   process.env.JWT_SECRET = "local-demo-signing-key-not-for-production";
   process.env.CLIENT_URL = clientUrl;
   process.env.EMAIL_DELIVERY_MODE = "inline";
+  process.env.OTEL_ENABLED = "false";
   delete process.env.REDIS_URL;
   const { MongoMemoryReplSet } = require("mongodb-memory-server");
   const mongoose = require("mongoose");

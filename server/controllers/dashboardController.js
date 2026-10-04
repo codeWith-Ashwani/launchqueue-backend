@@ -2,6 +2,7 @@ const { rankedSignups } = require("../services/ranking");
 const Waitlist = require("../models/Waitlist");
 const Signup = require("../models/Signup");
 const PageView = require("../models/PageView");
+const { observe } = require("../services/telemetry");
 
 async function visitors(waitlistId, filter = {}) {
   const [result] = await PageView.aggregate([
@@ -31,7 +32,7 @@ async function getStats(req, res) {
     const today = new Date(); today.setUTCHours(0, 0, 0, 0);
     const start = new Date(today); start.setUTCDate(start.getUTCDate() - 29);
     const [summary, traffic, signups, referrers] = await Promise.all([
-      Signup.aggregate([{ $match: { waitlistId: waitlist._id } }, { $facet: {
+      () => Signup.aggregate([{ $match: { waitlistId: waitlist._id } }, { $facet: {
         totals: [{ $group: { _id: null, total: { $sum: 1 }, pending: { $sum: { $cond: [{ $eq: ["$verificationState", "pending"] }, 1, 0] } },
           today: { $sum: { $cond: [{ $gte: ["$createdAt", today] }, 1, 0] } },
           referred: { $sum: { $cond: [{ $and: [{ $ne: ["$verificationState", "pending"] }, { $ne: ["$referredBy", null] }] }, 1, 0] } },
@@ -40,12 +41,12 @@ async function getStats(req, res) {
           _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt", timezone: "UTC" } }, count: { $sum: 1 },
         } }, { $sort: { _id: 1 } }],
       } }]),
-      visitors(waitlist._id),
-      rankedSignups(waitlist._id, [{ $skip: (page - 1) * limit }, { $limit: limit }, { $project: {
+      () => visitors(waitlist._id),
+      () => rankedSignups(waitlist._id, [{ $skip: (page - 1) * limit }, { $limit: limit }, { $project: {
         email: 1, referralCount: 1, currentPosition: 1, status: 1, invitationState: 1, verificationState: 1, createdAt: 1,
       } }]),
-      topReferrers(waitlist._id),
-    ]);
+      () => topReferrers(waitlist._id),
+    ].map((action, i) => observe(["mongo.analytics.summary", "mongo.analytics.visitors", "mongo.analytics.ranking", "mongo.analytics.referrers"][i], action)));
     const totals = summary[0].totals[0] || { total: 0, pending: 0, today: 0, referred: 0 };
     const verified = totals.total - totals.pending;
     const chartData = Array.from({ length: 30 }, (_, i) => {

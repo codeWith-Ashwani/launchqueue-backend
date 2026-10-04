@@ -46,3 +46,24 @@ jobs:
 
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
+
+      - name: Install pinned k6 with checksum verification
+        run: |
+          curl --fail --location --silent --show-error -O https://github.com/grafana/k6/releases/download/v2.3.0/k6-v2.3.0-linux-amd64.tar.gz
+          curl --fail --location --silent --show-error -O https://github.com/grafana/k6/releases/download/v2.3.0/k6-v2.3.0-checksums.txt
+          grep ' k6-v2.3.0-linux-amd64.tar.gz$' k6-v2.3.0-checksums.txt | sha256sum --check --strict
+          tar -xzf k6-v2.3.0-linux-amd64.tar.gz
+          echo "${GITHUB_WORKSPACE}/server/k6-v2.3.0-linux-amd64" >> "$GITHUB_PATH"
+
+      - name: Gate concurrent analytics performance on isolated data
+        run: npm run performance:smoke
+        env:
+          PERFORMANCE_P95_MS: 2000
+
+      - name: Save isolated performance measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: analytics-performance
+          path: docs/performance/*.json
+          if-no-files-found: ignore

@@ -220,11 +220,30 @@ npm test
 npm audit --omit=dev --audit-level=high
 ```
 
-The latest verified backend suite contains **189 tests across 35 suites**. Tests cover authentication, database admin approval and revocation, ownership, concurrent verification and referral credit, queue ordering, private status recovery, AI draft validation, discovery moderation, analytics, exports, billing, and email delivery.
+The backend suite contains **196 tests across 38 suites**, including Redis integrations. Tests cover authentication, database admin approval and revocation, ownership, concurrent verification and referral credit, queue ordering, private status recovery, AI draft validation, discovery moderation, analytics, exports, billing, email delivery, trace privacy, collector delivery, and diagnostics authorization.
 
 MongoDB tests use isolated in-memory replica sets. Set `TEST_REDIS_URL` to a test Redis instance to include BullMQ and shared rate-limit integration tests; those suites are skipped locally when it is absent. GitHub Actions provisions Redis and runs the complete suite, lint, and production dependency audit on `main`, `feature/**`, and pull requests to `main`.
 
-The [frontend repository](https://github.com/codeWith-Ashwani/launchqueue) adds 57 unit/component tests and 11 Playwright flows against the real isolated API. `npm run benchmark` measures paginated analytics with synthetic data.
+The [frontend repository](https://github.com/codeWith-Ashwani/launchqueue) adds unit/component and Playwright coverage against the real isolated API. `npm run benchmark` measures paginated analytics with synthetic data.
+
+## Performance and observability
+
+Install [k6 2.3.0](https://github.com/grafana/k6/releases/tag/v2.3.0), then run from `server/`:
+
+```sh
+npm run performance:smoke
+npm run performance:matrix
+```
+
+The runner owns a temporary MongoDB replica set, creates synthetic subscribers and a temporary founder session, and accepts only its loopback API. The smoke test uses 1,000 subscribers, five virtual users, and 20 requests. The full matrix uses 1,000, 10,000, and 50,000 subscribers at one, five, and ten concurrent virtual users, with 50 requests per case. Every response must return 50 contiguous ranks and the correct total. Gates require p95 below `PERFORMANCE_P95_MS` (default 2,000 ms), zero request errors, and all checks passing. GitHub Actions verifies the pinned k6 binary's checksum, runs the smoke gate, and saves measurements as an artifact.
+
+Reports include p50/p95, throughput, response size, and correctness. Generated reports remain in ignored `docs/performance/`. These warmed, closed-workload measurements describe this fixture; use the same environment and workload when comparing changes.
+
+A local Node 22 baseline measured p95 at **61 ms / 219 ms / 2,140 ms** for 1,000 / 10,000 / 50,000 subscribers with ten virtual users and 50 requests per case. All response checks passed with zero request errors. The 50,000-subscriber case exceeded the two-second gate, identifying a concrete target for ranking-query optimization rather than claiming production capacity.
+
+Database-approved admins can read `GET /api/admin/diagnostics` for route latency, operation latency, process memory, event-loop delay, anonymous Web Vitals, email state counts, and the oldest unsent email age. Counters belong to one process and reset on restart; percentiles use the most recent 128 samples per label. Labels use route templates and fixed operation names, excluding resource IDs, emails, tokens, request bodies, and raw errors.
+
+OpenTelemetry exports sampled request and child-operation traces when `OTEL_ENABLED=true`, `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` points to an OTLP/HTTP collector's trace endpoint, and `OTEL_TRACE_SAMPLE_RATE` is set between zero and one. Export is disabled by default; diagnostics work independently. Worker deployments use the same telemetry settings with a distinct `OTEL_SERVICE_NAME`. Request logs include a trace ID when tracing is active; `Server-Timing` exposes application response duration to browser tools.
 
 ## Deployment
 
